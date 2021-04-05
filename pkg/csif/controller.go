@@ -5,7 +5,6 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/golang/glog"
-	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,9 +18,9 @@ func (cd *csifDriver) ControllerGetCapabilities(ctx context.Context, req *csi.Co
 
 func (cd *csifDriver) getCSCapabilities() []*csi.ControllerServiceCapability {
 	rpcCap := []csi.ControllerServiceCapability_RPC_Type{
-		// TODO: capabilities
-		//csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		//csi.ControllerServiceCapability_RPC_GET_CAPACITY,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		//csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		//csi.ControllerServiceCapability_RPC_CLONE_VOLUME, TODO: readonly
 	}
 	var csCap []*csi.ControllerServiceCapability
 
@@ -50,22 +49,9 @@ func (cd *csifDriver) validateCSCapability(c csi.ControllerServiceCapability_RPC
 	return status.Errorf(codes.InvalidArgument, "CSCapability unsupported: %s", c)
 }
 
-func newUUID() (string, error) {
-	id, err := uuid.NewUUID()
-	if err != nil {
-		return "", err
-	}
-	return id.String(), nil
-}
+func obtainVolumeCapabilitiy(caps []*csi.VolumeCapability) (volAccessType, error) {
+	isMount, isBlock := false, false
 
-func getVolAccessType(req *csi.CreateVolumeRequest) (volAccessType, error) {
-	at := volAccessMount // default
-	var isMount, isBlock bool
-
-	caps := req.GetVolumeCapabilities()
-	if caps == nil {
-		return at, status.Error(codes.InvalidArgument, "Empty vol.cap")
-	}
 	for _, cap := range caps {
 		if cap.GetMount() != nil {
 			isMount = true
@@ -76,13 +62,15 @@ func getVolAccessType(req *csi.CreateVolumeRequest) (volAccessType, error) {
 	}
 
 	if isMount && isBlock {
-		return at, status.Error(codes.InvalidArgument, "block+mount access type")
+		return volAccessMount, status.Error(codes.InvalidArgument, "block+mount access type")
 	}
 
 	if isBlock {
-		at = volAccessBlock
+		return volAccessBlock, nil
 	}
-	return at, nil
+
+	// TODO: loop and find MountFlags, FsType
+	return volAccessMount, nil
 }
 
 func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (resp *csi.CreateVolumeResponse, finalErr error) {
@@ -95,7 +83,12 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 		return nil, status.Error(codes.InvalidArgument, "No volName in request")
 	}
 
-	accessType, err := getVolAccessType(req)
+	caps := req.GetVolumeCapabilities()
+	if caps == nil {
+		return nil, status.Error(codes.InvalidArgument, "nil vol.caps")
+	}
+
+	accessType, err := obtainVolumeCapabilitiy(caps)
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +101,8 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 	nodeTopo := csi.Topology{Segments: map[string]string{TopologyKeyNode: cd.nodeID}}
 	topologies := []*csi.Topology{&nodeTopo}
 
-	// TODO: this MUST be unsupported
 	if req.GetVolumeContentSource() != nil {
-		panic("unsupported")
-		//return nil, status.Error(codes.InvalidArgument, "VolumeContentSource feautures unsupported")
+		return nil, status.Error(codes.InvalidArgument, "VolumeContentSource feautures unsupported")
 	}
 
 	// If volume exists - verify parameters, respond
@@ -143,7 +134,7 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 	if err != nil {
 		return nil, fmt.Errorf("failed to create volume %v: %w", volID, err)
 	}
-	glog.V(4).Infof("volume: %s path: %s done", vol.ID, vol.Path)
+	glog.V(4).Infof("volume: %s done", vol.ID)
 
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
@@ -176,41 +167,42 @@ func (cd *csifDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeReq
 }
 
 func (cd *csifDriver) ControllerPublishVolume(_ context.Context, _ *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
 func (cd *csifDriver) ControllerUnpublishVolume(_ context.Context, _ *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) ValidateVolumeCapabilities(_ context.Context, _ *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
-	panic("not implemented") // TODO: Implement
+func (cd *csifDriver) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
 func (cd *csifDriver) ListVolumes(_ context.Context, _ *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
 func (cd *csifDriver) GetCapacity(_ context.Context, _ *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
 func (cd *csifDriver) CreateSnapshot(_ context.Context, _ *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "snapshots are unimplemented")
 }
 
 func (cd *csifDriver) DeleteSnapshot(_ context.Context, _ *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "snapshots are unimplemented")
 }
 
 func (cd *csifDriver) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "snapshots are unimplemented")
 }
 
 func (cd *csifDriver) ControllerExpandVolume(_ context.Context, _ *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+	// TODO: what to do?
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
 func (cd *csifDriver) ControllerGetVolume(_ context.Context, _ *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }

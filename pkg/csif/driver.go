@@ -10,7 +10,11 @@ import (
 )
 
 const (
-	stageVolumePath = "/csif-volumes"
+	mib = 1024 * 1024
+)
+
+const (
+	volImgPath      = "/csif-images"
 	TopologyKeyNode = "topology.csif.csi/node"
 )
 
@@ -30,13 +34,12 @@ const (
 )
 
 type csifVolume struct {
-	Name        string        `json:"Name"`
-	ID          string        `json:"ID"`
-	Path        string        `json:"Path"`
-	Size        int64         `json:"Size"`
-	AccessType  volAccessType `json:"AccessType"`
-	NodeID      string        `json:"NodeID"`
-	ParentVolID string        `json:"ParentVolID,omitempty"`
+	Name       string
+	ID         string
+	ImgPath    string
+	Size       int64
+	AccessType volAccessType
+	NodeID     string
 }
 
 func NewCsifDriver(name, nodeID, endpoint string, version string) (*csifDriver, error) {
@@ -47,10 +50,10 @@ func NewCsifDriver(name, nodeID, endpoint string, version string) (*csifDriver, 
 		version = "notset"
 	}
 
-	if err := os.MkdirAll(stageVolumePath, 0750); err != nil {
-		return nil, fmt.Errorf("mkdir: %s: %v", stageVolumePath, err)
+	if err := os.MkdirAll(volImgPath, 0750); err != nil {
+		return nil, fmt.Errorf("mkdir: %s: %v", volImgPath, err)
 	}
-	glog.Info("Mkdir: %s", stageVolumePath)
+	glog.Info("Mkdir: %s", volImgPath)
 
 	cf := &csifDriver{
 		name:     name,
@@ -72,8 +75,8 @@ func (cd *csifDriver) Run() error {
 	return nil
 }
 
-func getVolumePath(volID string) string {
-	return filepath.Join(stageVolumePath, volID)
+func getVolumeImgPath(volID string) string {
+	return filepath.Join(volImgPath, volID)
 }
 
 func (cd *csifDriver) getVolumeByID(volID string) (csifVolume, error) {
@@ -94,16 +97,13 @@ func (cd *csifDriver) getVolumeByName(volName string) (csifVolume, error) {
 
 func (cd *csifDriver) createVolume(volID, name string, cap int64, accessType volAccessType) (*csifVolume, error) {
 	glog.V(4).Infof("creating csif volume: %s", volID)
-	path := getVolumePath(volID)
+	path := getVolumeImgPath(volID)
 
 	switch accessType {
-	case volAccessMount: // TODO: loop iscsi device
-		err := os.MkdirAll(path, 0777)
-		if err != nil {
-			return nil, err
+	case volAccessMount, volAccessBlock: // TODO: start iscsi target
+		if err := createDiskImg(path, cap); err != nil {
+			return nil, fmt.Errorf("create disk img failed: %v", err)
 		}
-	case volAccessBlock:
-		panic("not implemented")
 	default:
 		return nil, fmt.Errorf("wrong access type %v", accessType)
 	}
@@ -111,7 +111,7 @@ func (cd *csifDriver) createVolume(volID, name string, cap int64, accessType vol
 	vol := csifVolume{
 		Name:       name,
 		ID:         volID,
-		Path:       path,
+		ImgPath:    path,
 		Size:       cap,
 		AccessType: accessType,
 	}
@@ -129,13 +129,11 @@ func (cd *csifDriver) deleteVolume(volID string) error {
 	}
 
 	switch vol.AccessType {
-	case volAccessMount: // TODO: loop iscsi device
-		path := getVolumePath(volID)
-		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
-			return err
+	case volAccessMount, volAccessBlock: // TODO: shutdown iscsi target
+		path := getVolumeImgPath(volID)
+		if err := destroyDiskImg(path); err != nil {
+			return fmt.Errorf("destroy disk img failed: %v", err)
 		}
-	case volAccessBlock:
-		panic("not implemented")
 	}
 
 	delete(cd.volumes, volID)
