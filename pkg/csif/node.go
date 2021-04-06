@@ -10,16 +10,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/mount-utils"
-	"k8s.io/utils/exec"
 )
 
-func (cd *csifDriver) formatAndMount(req *csi.NodeStageVolumeRequest, devPath string) error {
+func (cd *csifDriver) stageDeviceMount(req *csi.NodeStageVolumeRequest, devPath string) error {
 	mntPath := req.GetStagingTargetPath()
-	mounter := mount.SafeFormatAndMount{
-		Interface: mount.New(""),
-		Exec:      exec.New(),
-	}
-	notMP, err := mounter.IsLikelyNotMountPoint(mntPath)
+	notMP, err := cd.mounter.IsLikelyNotMountPoint(mntPath)
 	if err != nil && !os.IsNotExist(err) {
 		if err := os.MkdirAll(mntPath, 0777); err != nil {
 			return fmt.Errorf("mkdir failed: %s: %v", mntPath, err)
@@ -34,9 +29,35 @@ func (cd *csifDriver) formatAndMount(req *csi.NodeStageVolumeRequest, devPath st
 	mountFlags := req.GetVolumeCapability().GetMount().GetMountFlags()
 	options := append([]string{}, mountFlags...)
 
-	if err := mounter.FormatAndMount(devPath, mntPath, fsType, options); err != nil {
+	if err := cd.mounter.FormatAndMount(devPath, mntPath, fsType, options); err != nil {
 		return fmt.Errorf("mount failed: volume %s, bdev %s, fs %s, path %s: %v",
 			req.GetVolumeId(), devPath, fsType, mntPath, err)
+	}
+	return nil
+}
+
+func (cd *csifDriver) unstageDevice(req *csi.NodeUnstageVolumeRequest, devPath string) error {
+	targetPath := req.GetStagingTargetPath()
+
+	if ok, err := mount.PathExists(targetPath); err != nil {
+		return fmt.Errorf("check PathExists failed: %v", err)
+	} else if !ok {
+		glog.V(4).Infof("volume not mounted, skip: %v", targetPath)
+		return nil
+	}
+
+	notMP, err := cd.mounter.IsLikelyNotMountPoint(targetPath)
+	if err != nil {
+		return err
+	}
+	if !notMP {
+		if err := cd.mounter.Unmount(targetPath); err != nil {
+			return fmt.Errorf("unmount %s failed: %v", targetPath, err)
+		}
+	}
+
+	if err := os.RemoveAll(targetPath); err != nil {
+		return fmt.Errorf("remove %s failed: %v", targetPath, err)
 	}
 	return nil
 }
@@ -44,7 +65,7 @@ func (cd *csifDriver) formatAndMount(req *csi.NodeStageVolumeRequest, devPath st
 func (cd *csifDriver) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	glog.V(4).Infof("NodeStageVolume")
 	if len(req.GetVolumeId()) == 0 || len(req.GetStagingTargetPath()) == 0 || req.GetVolumeCapability() == nil {
-		return nil, status.Error(codes.InvalidArgument, "Wrong args")
+		return nil, status.Error(codes.InvalidArgument, "wrong args")
 	}
 	vol, err := cd.getVolumeByID(req.GetVolumeId())
 	if err != nil {
@@ -52,27 +73,53 @@ func (cd *csifDriver) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	// TODO: attach to iscsi target
-	bdev, err := createBDev(vol.ImgPath)
+	bdev, err := cd.createBDev(vol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bdev: %v", err)
 	}
 
 	if req.GetVolumeCapability().GetBlock() != nil {
+		vol.StagingPath = req.GetStagingTargetPath()
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
-	if err := cd.formatAndMount(req, bdev); err != nil {
-		if err := destroyBDev(vol.ImgPath); err != nil {
+	if err := cd.stageDeviceMount(req, bdev); err != nil {
+		if err := cd.destroyBDev(vol); err != nil {
 			glog.Errorf("destroy bdev failed: %v", err)
 		}
 		return nil, fmt.Errorf("format and mount failed: %v", err)
 	}
 
+	vol.StagingPath = req.GetStagingTargetPath()
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
-func (cd *csifDriver) NodeUnstageVolume(_ context.Context, _ *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+func (cd *csifDriver) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+	glog.V(4).Infof("NodeUnstageVolume")
+	if len(req.GetVolumeId()) == 0 || len(req.GetStagingTargetPath()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "wrong args")
+	}
+
+	vol, err := cd.getVolumeByID(req.GetVolumeId())
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	if vol.StagingPath == "" { // if not staged
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	bdev, err := cd.getBDev(vol)
+	if err != nil {
+		return nil, fmt.Errorf("get bdev failed: %v", err)
+	}
+	cd.unstageDevice(req, bdev)
+
+	if err = cd.destroyBDev(vol); err != nil {
+		return nil, fmt.Errorf("destroy bdev failed: %v", err)
+	}
+	vol.StagingPath = "" // unstaged
+	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
 func mergeOptions(opts1 []string, opts2 []string) []string {
@@ -111,12 +158,7 @@ func (cd *csifDriver) publishVolumeMount(req *csi.NodePublishVolumeRequest, moun
 		return fmt.Errorf("chmod failed: %s: %v", target, err)
 	}
 
-	mounter := mount.SafeFormatAndMount{
-		Interface: mount.New(""),
-		Exec:      exec.New(),
-	}
-
-	if err := mounter.Mount(staging, target, fsType, mountOptions); err != nil {
+	if err := cd.mounter.Mount(staging, target, fsType, mountOptions); err != nil {
 		if err := os.Remove(target); err != nil {
 			return fmt.Errorf("remove failed: %s: %v", target, err)
 		}
@@ -147,27 +189,76 @@ func (cd *csifDriver) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			return nil, err
 		}
 	} else {
-		panic("")
+		return nil, status.Error(codes.Unimplemented, "unimplemented") // TODO: create file, bind mount
 	}
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (cd *csifDriver) NodeUnpublishVolume(_ context.Context, _ *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+func (cd *csifDriver) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+	if len(req.GetVolumeId()) == 0 || len(req.GetTargetPath()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "wrong args")
+	}
+
+	target := req.GetTargetPath()
+
+	_, err := cd.getVolumeByID(req.GetVolumeId())
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	notMP, err := cd.mounter.IsLikelyNotMountPoint(target)
+	if (err == nil && notMP) || os.IsNotExist(err) {
+		glog.V(4).Infof("NodeUnpublishVolume: %s not mounted: %v", target, err)
+		return &csi.NodeUnpublishVolumeResponse{}, nil
+	}
+
+	if err := cd.mounter.Unmount(target); err != nil {
+		return nil, fmt.Errorf("unmount %s failed: %v", target, err)
+	}
+
+	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
 func (cd *csifDriver) NodeGetVolumeStats(_ context.Context, _ *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
 func (cd *csifDriver) NodeExpandVolume(_ context.Context, _ *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-	panic("not implemented") // TODO: Implement
+func (cd *csifDriver) getNSCapabilities() []*csi.NodeServiceCapability {
+	rpcCap := []csi.NodeServiceCapability_RPC_Type{
+		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+		csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+	}
+
+	var nsCap []*csi.NodeServiceCapability
+	for _, cap := range rpcCap {
+		nsCap = append(nsCap, &csi.NodeServiceCapability{
+			Type: &csi.NodeServiceCapability_Rpc{
+				Rpc: &csi.NodeServiceCapability_RPC{
+					Type: cap,
+				},
+			},
+		})
+	}
+	return nsCap
 }
 
-func (cd *csifDriver) NodeGetInfo(_ context.Context, _ *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
-	panic("not implemented") // TODO: Implement
+func (cd *csifDriver) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+	return &csi.NodeGetCapabilitiesResponse{
+		Capabilities: cd.getNSCapabilities(),
+	}, nil
+}
+
+func (cd *csifDriver) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+	topology := &csi.Topology{
+		Segments: map[string]string{TopologyKeyNode: cd.nodeID},
+	}
+	return &csi.NodeGetInfoResponse{
+		NodeId:             cd.nodeID,
+		AccessibleTopology: topology,
+		MaxVolumesPerNode:  cd.maxVolumesPerNode,
+	}, nil
 }

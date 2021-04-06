@@ -68,8 +68,6 @@ func obtainVolumeCapabilitiy(caps []*csi.VolumeCapability) (volAccessType, error
 	if isBlock {
 		return volAccessBlock, nil
 	}
-
-	// TODO: loop and find MountFlags, FsType
 	return volAccessMount, nil
 }
 
@@ -107,7 +105,7 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 
 	// If volume exists - verify parameters, respond
 	if vol, err := cd.getVolumeByName(req.GetName()); err == nil {
-		glog.V(4).Infof("%s volume exists, veifying parameters...", req.GetName())
+		glog.V(4).Infof("%s volume exists, veifying parameters", req.GetName())
 		if vol.Size != capacity {
 			return nil, status.Errorf(codes.AlreadyExists, "vol.size mismatch")
 		}
@@ -122,27 +120,19 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 		}, nil
 	}
 
-	volID, err := newUUID()
+	vol, err := cd.createVolume(req, capacity, accessType)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate uuid: %w", err)
-	}
-
-	// TODO: params
-	// paramVal := req.GetParameters()["param"]
-	// pass here: createVolume(..., req.GetParameters)
-	vol, err := cd.createVolume(volID, req.GetName(), capacity, accessType)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create volume %v: %w", volID, err)
+		return nil, fmt.Errorf("failed to create volume %v: %w", req.GetName(), err)
 	}
 	glog.V(4).Infof("volume: %s done", vol.ID)
 
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId:           volID,
+			VolumeId:           vol.ID,
 			CapacityBytes:      req.GetCapacityRange().GetRequiredBytes(),
 			VolumeContext:      req.GetParameters(),
 			ContentSource:      req.GetVolumeContentSource(),
-			AccessibleTopology: topologies, // TODO
+			AccessibleTopology: topologies, // TODO:
 		},
 	}, nil
 }
@@ -199,7 +189,6 @@ func (cd *csifDriver) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsReque
 }
 
 func (cd *csifDriver) ControllerExpandVolume(_ context.Context, _ *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	// TODO: what to do?
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 

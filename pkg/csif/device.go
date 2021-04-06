@@ -33,19 +33,28 @@ func destroyDiskImg(path string) error {
 	return nil
 }
 
-func createBDev(path string) (string, error) {
+func (cd *csifDriver) createBDev(vol *csifVolume) (string, error) {
 	volPathHandler := volumepathhandler.VolumePathHandler{}
-	dev, err := volPathHandler.AttachFileDevice(path)
+	dev, err := volPathHandler.AttachFileDevice(vol.ImgPath)
 	if err != nil {
-		return "", fmt.Errorf("AttachFileDevice failed: %v: %v", path, err)
+		return "", fmt.Errorf("attachFileDevice failed: %v: %v", vol.ImgPath, err)
 	}
 	return dev, nil
 }
 
-func destroyBDev(path string) error {
+func (cd *csifDriver) destroyBDev(vol *csifVolume) error {
 	volPathHandler := volumepathhandler.VolumePathHandler{}
-	if err := volPathHandler.DetachFileDevice(path); err != nil {
-		return fmt.Errorf("DetachFileDevice failed: %s: %v", path, err)
+	if err := volPathHandler.DetachFileDevice(vol.ImgPath); err != nil {
+		return fmt.Errorf("detachFileDevice failed: %s: %v", vol.ImgPath, err)
 	}
 	return nil
+}
+
+func (cd *csifDriver) getBDev(vol *csifVolume) (string, error) {
+	volPathHandler := volumepathhandler.VolumePathHandler{}
+	dev, err := volPathHandler.GetLoopDevice(vol.ImgPath)
+	if err != nil {
+		return "", fmt.Errorf("getLoopDevice failed: %s: %v", vol.ImgPath, err)
+	}
+	return dev, nil
 }
