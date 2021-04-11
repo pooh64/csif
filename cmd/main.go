@@ -10,7 +10,7 @@ import (
 
 var (
 	version           = "0.0.1"
-	endpoint          = flag.String("endpoint", "unix://tmp/csif-csi.sock", "endpoint")
+	endpoint          = flag.String("endpoint", "unix://tmp/csi.sock", "endpoint")
 	nodeID            = flag.String("nodeid", "", "node id")
 	driverName        = flag.String("drivername", "csif.csi.pooh64.io", "driver name")
 	maxVolumesPerNode = flag.Int64("maxvolumespernode", 0, "limit of volumes per node")

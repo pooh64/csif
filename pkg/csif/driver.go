@@ -16,7 +16,7 @@ const (
 )
 
 const (
-	csifImagesPath  = "/csif-images"
+	csifImagesPath  = "/csi-csif-images"
 	TopologyKeyNode = "topology.csif.csi/node"
 )
 
