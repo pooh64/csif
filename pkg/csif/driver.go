@@ -59,7 +59,7 @@ func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerN
 	if err := os.MkdirAll(csifImagesPath, 0750); err != nil {
 		return nil, fmt.Errorf("mkdir: %s: %v", csifImagesPath, err)
 	}
-	glog.Info("Mkdir: %s", csifImagesPath)
+	glog.Infof("Mkdir: %s", csifImagesPath)
 
 	mounter := mount.SafeFormatAndMount{
 		Interface: mount.New(""),

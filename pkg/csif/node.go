@@ -230,7 +230,7 @@ func (cd *csifDriver) NodeExpandVolume(_ context.Context, _ *csi.NodeExpandVolum
 func (cd *csifDriver) getNSCapabilities() []*csi.NodeServiceCapability {
 	rpcCap := []csi.NodeServiceCapability_RPC_Type{
 		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
-		csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+		csi.NodeServiceCapability_RPC_EXPAND_VOLUME, // TODO: NI
 	}
 
 	var nsCap []*csi.NodeServiceCapability

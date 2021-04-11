@@ -19,6 +19,8 @@ func (cd *csifDriver) ControllerGetCapabilities(ctx context.Context, req *csi.Co
 func (cd *csifDriver) getCSCapabilities() []*csi.ControllerServiceCapability {
 	rpcCap := []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT, // TODO: NI
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,          // TODO: NI
 		//csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 		//csi.ControllerServiceCapability_RPC_CLONE_VOLUME, TODO: readonly
 	}
