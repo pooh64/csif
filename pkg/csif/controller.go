@@ -108,13 +108,13 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 	// If volume exists - verify parameters, respond
 	if vol, err := cd.getVolumeByName(req.GetName()); err == nil {
 		glog.V(4).Infof("%s volume exists, veifying parameters", req.GetName())
-		if vol.Size != capacity {
+		if vol.Capacity != capacity {
 			return nil, status.Errorf(codes.AlreadyExists, "vol.size mismatch")
 		}
 		return &csi.CreateVolumeResponse{
 			Volume: &csi.Volume{
 				VolumeId:           vol.ID,
-				CapacityBytes:      int64(vol.Size),
+				CapacityBytes:      int64(vol.Capacity),
 				VolumeContext:      req.GetParameters(),
 				ContentSource:      req.GetVolumeContentSource(),
 				AccessibleTopology: topologies,
@@ -122,7 +122,7 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 		}, nil
 	}
 
-	vol, err := cd.createVolume(req, capacity, accessType)
+	vol, err := cd.createVolume(req, accessType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create volume %v: %w", req.GetName(), err)
 	}

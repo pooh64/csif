@@ -2,8 +2,6 @@ package csif
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/golang/glog"
@@ -16,7 +14,6 @@ const (
 )
 
 const (
-	csifImagesPath  = "/csi-csif-images"
 	TopologyKeyNode = "topology.csif.csi/node"
 )
 
@@ -38,14 +35,22 @@ const (
 	volAccessBlock
 )
 
+type csifDisk interface {
+	Create(req *csi.CreateVolumeRequest, volID string) error
+	Destroy() error
+	Attach() (string, error)
+	Detach() error
+	GetPath() (string, error)
+}
 type csifVolume struct {
-	Name        string
-	ID          string
-	ImgPath     string
-	Size        int64
-	AccessType  volAccessType
-	NodeID      string
+	Name       string
+	ID         string
+	Capacity   int64
+	AccessType volAccessType
+
 	StagingPath string
+
+	Disk csifDisk
 }
 
 func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerNode int64) (*csifDriver, error) {
@@ -56,14 +61,13 @@ func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerN
 		version = "notset"
 	}
 
-	if err := os.MkdirAll(csifImagesPath, 0750); err != nil {
-		return nil, fmt.Errorf("mkdir: %s: %v", csifImagesPath, err)
-	}
-	glog.Infof("Mkdir: %s", csifImagesPath)
-
 	mounter := mount.SafeFormatAndMount{
 		Interface: mount.New(""),
 		Exec:      exec.New(),
+	}
+
+	if err := InitHostImages(); err != nil {
+		return nil, fmt.Errorf("failed to init hostimages: %v", err)
 	}
 
 	cf := &csifDriver{
@@ -104,7 +108,7 @@ func (cd *csifDriver) getVolumeByName(volName string) (*csifVolume, error) {
 	return nil, fmt.Errorf("no volName=%s in volumes", volName)
 }
 
-func (cd *csifDriver) createVolume(req *csi.CreateVolumeRequest, cap int64, accessType volAccessType) (*csifVolume, error) {
+func (cd *csifDriver) createVolume(req *csi.CreateVolumeRequest, accessType volAccessType) (*csifVolume, error) {
 	name := req.GetName()
 	glog.V(4).Infof("creating csif volume: %s", name)
 
@@ -113,29 +117,23 @@ func (cd *csifDriver) createVolume(req *csi.CreateVolumeRequest, cap int64, acce
 		return nil, fmt.Errorf("failed to generate uuid: %w", err)
 	}
 
-	imgPath := filepath.Join(csifImagesPath, volID)
-	/*
-		imgPath, ok := req.GetParameters()["imgPath"]
-		if !ok {
-			imgPath := filepath.Join(volImgPath, volID)
-		}
-	*/
-
 	switch accessType {
-	case volAccessMount, volAccessBlock: // TODO: start iscsi target
-		if err := createDiskImg(imgPath, cap); err != nil {
-			return nil, fmt.Errorf("create disk img failed: %v", err)
-		}
+	case volAccessMount, volAccessBlock:
 	default:
 		return nil, fmt.Errorf("wrong access type %v", accessType)
+	}
+
+	disk := newCsifHostImg()
+	if err := disk.Create(req, volID); err != nil {
+		return nil, fmt.Errorf("failed to create disk: %v", err)
 	}
 
 	vol := csifVolume{
 		Name:       name,
 		ID:         volID,
-		ImgPath:    imgPath,
-		Size:       cap,
+		Capacity:   req.CapacityRange.GetRequiredBytes(),
 		AccessType: accessType,
+		Disk:       disk,
 	}
 	cd.volumes[volID] = vol
 	return &vol, nil
@@ -150,12 +148,8 @@ func (cd *csifDriver) deleteVolume(volID string) error {
 		return nil
 	}
 
-	switch vol.AccessType {
-	case volAccessMount, volAccessBlock: // TODO: shutdown iscsi target
-		path := vol.ImgPath
-		if err := destroyDiskImg(path); err != nil {
-			return fmt.Errorf("destroy disk img failed: %v", err)
-		}
+	if err := vol.Disk.Destroy(); err != nil {
+		return fmt.Errorf("failed to destroy disk: %v", err)
 	}
 
 	delete(cd.volumes, volID)

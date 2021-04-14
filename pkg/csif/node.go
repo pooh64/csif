@@ -36,7 +36,7 @@ func (cd *csifDriver) stageDeviceMount(req *csi.NodeStageVolumeRequest, devPath 
 	return nil
 }
 
-func (cd *csifDriver) unstageDevice(req *csi.NodeUnstageVolumeRequest, devPath string) error {
+func (cd *csifDriver) unstageDevice(req *csi.NodeUnstageVolumeRequest) error {
 	targetPath := req.GetStagingTargetPath()
 
 	if ok, err := mount.PathExists(targetPath); err != nil {
@@ -72,10 +72,9 @@ func (cd *csifDriver) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
-	// TODO: attach to iscsi target
-	bdev, err := cd.createBDev(vol)
+	bdev, err := vol.Disk.Attach()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create bdev: %v", err)
+		return nil, fmt.Errorf("failed to attach disk: %v", err)
 	}
 
 	if req.GetVolumeCapability().GetBlock() != nil {
@@ -84,7 +83,7 @@ func (cd *csifDriver) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	if err := cd.stageDeviceMount(req, bdev); err != nil {
-		if err := cd.destroyBDev(vol); err != nil {
+		if err := vol.Disk.Detach(); err != nil {
 			glog.Errorf("destroy bdev failed: %v", err)
 		}
 		return nil, fmt.Errorf("format and mount failed: %v", err)
@@ -109,14 +108,10 @@ func (cd *csifDriver) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	bdev, err := cd.getBDev(vol)
-	if err != nil {
-		return nil, fmt.Errorf("get bdev failed: %v", err)
-	}
-	cd.unstageDevice(req, bdev)
+	cd.unstageDevice(req) // if staging MP exists - unmount
 
-	if err = cd.destroyBDev(vol); err != nil {
-		return nil, fmt.Errorf("destroy bdev failed: %v", err)
+	if err = vol.Disk.Detach(); err != nil {
+		return nil, fmt.Errorf("detach disk failed: %v", err)
 	}
 	vol.StagingPath = "" // unstaged
 	return &csi.NodeUnstageVolumeResponse{}, nil
@@ -169,12 +164,40 @@ func (cd *csifDriver) publishVolumeMount(req *csi.NodePublishVolumeRequest, moun
 	return nil
 }
 
+func (cd *csifDriver) publishVolumeBlock(req *csi.NodePublishVolumeRequest, mountOptions []string) error {
+	target := req.GetTargetPath()
+	vol, err := cd.getVolumeByID(req.GetVolumeId())
+	if err != nil {
+		return status.Error(codes.NotFound, err.Error())
+	}
+
+	dev, err := vol.Disk.GetPath()
+	if err != nil {
+		return fmt.Errorf("disk getpath failed: %v", err)
+	}
+
+	if err := makeFile(target); err != nil {
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("remove failed: %s: %v", target, err)
+		}
+		return fmt.Errorf("makeFile failed: %s: %v", target, err)
+	}
+
+	if err := cd.mounter.Mount(dev, target, "", mountOptions); err != nil {
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("remove failed: %s: %v", target, err)
+		}
+		return fmt.Errorf("mount failed: device %s, target %s: %v", dev, target, err)
+	}
+	return nil
+}
+
 func (cd *csifDriver) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	glog.V(4).Infof("NodePublishVolume")
 	if len(req.GetVolumeId()) == 0 || len(req.GetStagingTargetPath()) == 0 || req.GetVolumeCapability() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Wrong args")
 	}
-	_, err := cd.getVolumeByID(req.GetVolumeId()) // TODO: check mount cap?
+	_, err := cd.getVolumeByID(req.GetVolumeId()) // TODO: check mount capab.?
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
@@ -189,7 +212,9 @@ func (cd *csifDriver) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			return nil, err
 		}
 	} else {
-		return nil, status.Error(codes.Unimplemented, "unimplemented") // TODO: create file, bind mount
+		if err := cd.publishVolumeBlock(req, mountOptions); err != nil {
+			return nil, err
+		}
 	}
 	return &csi.NodePublishVolumeResponse{}, nil
 }
