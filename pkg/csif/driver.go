@@ -1,6 +1,7 @@
 package csif
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -13,19 +14,16 @@ const (
 	mib = 1024 * 1024
 )
 
-const (
-	TopologyKeyNode = "topology.csif.csi/node"
-)
+type csifDiskNewFn = func() csifDisk
 
-type csifDriver struct {
-	name              string
-	version           string
-	endpoint          string
-	nodeID            string
-	volumes           map[string]csifVolume
-	maxVolumesPerNode int64
-
-	mounter *mount.SafeFormatAndMount
+type csifDisk interface {
+	Connect(req *csi.CreateVolumeRequest, volID string) error
+	Disconnect() error
+	Attach() (string, error)
+	Detach() error
+	GetPath() (string, error)
+	GetType() string
+	// VerifyParam() TODO: idempotent CS
 }
 
 type volAccessType int
@@ -35,22 +33,65 @@ const (
 	volAccessBlock
 )
 
-type csifDisk interface {
-	Create(req *csi.CreateVolumeRequest, volID string) error
-	Destroy() error
-	Attach() (string, error)
-	Detach() error
-	GetPath() (string, error)
-}
+// ControllerServer related info
 type csifVolume struct {
 	Name       string
 	ID         string
-	Capacity   int64
+	Size       int64
 	AccessType volAccessType
+	Disk       csifDisk
+}
 
+const (
+	TopologyKeyNode = "topology.csif.csi/node"
+)
+
+type csifVolumeAttachment struct {
+	Disk        csifDisk
 	StagingPath string
+}
 
-	Disk csifDisk
+type csifNodeServer struct {
+	cd      *csifDriver
+	mounter mount.SafeFormatAndMount
+	volumes map[string]*csifVolumeAttachment
+}
+
+func NewCsifNodeServer(driver *csifDriver) *csifNodeServer {
+	mounter := mount.SafeFormatAndMount{
+		Interface: mount.New(""),
+		Exec:      exec.New(),
+	}
+
+	return &csifNodeServer{
+		cd:      driver,
+		mounter: mounter,
+		volumes: map[string]*csifVolumeAttachment{},
+	}
+}
+
+type csifControllerServer struct {
+	cd      *csifDriver
+	volumes map[string]*csifVolume
+}
+
+func NewCsifControllerServer(driver *csifDriver) *csifControllerServer {
+	return &csifControllerServer{
+		cd:      driver,
+		volumes: map[string]*csifVolume{},
+	}
+}
+
+type csifDriver struct {
+	name              string
+	version           string
+	endpoint          string
+	nodeID            string
+	maxVolumesPerNode int64
+
+	ns *csifNodeServer
+
+	diskTypes map[string]csifDiskNewFn
 }
 
 func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerNode int64) (*csifDriver, error) {
@@ -61,54 +102,107 @@ func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerN
 		version = "notset"
 	}
 
-	mounter := mount.SafeFormatAndMount{
-		Interface: mount.New(""),
-		Exec:      exec.New(),
-	}
-
-	if err := InitHostImages(); err != nil {
-		return nil, fmt.Errorf("failed to init hostimages: %v", err)
-	}
-
 	cf := &csifDriver{
 		name:              name,
 		version:           version,
 		endpoint:          endpoint,
 		nodeID:            nodeID,
-		mounter:           &mounter,
 		maxVolumesPerNode: maxVolumesPerNode,
 
-		volumes: map[string]csifVolume{},
+		diskTypes: map[string]csifDiskNewFn{},
 	}
+
+	fn, err := RegisterHostImg()
+	if err != nil {
+		return nil, fmt.Errorf("failed to register %s driver: %v", csifHostImgName, err)
+	}
+	cf.diskTypes[csifHostImgName] = fn
+
 	glog.Infof("New Driver: name=%v version=%v", name, version)
 
 	return cf, nil
 }
 
 func (cd *csifDriver) Run() error {
+	cd.ns = NewCsifNodeServer(cd)
+	cs := NewCsifControllerServer(cd)
+
 	server := NewNbServer()
-	server.Start(cd.endpoint, cd, cd, cd)
+	server.Start(cd.endpoint, cd, cs, cd.ns)
 	server.Wait()
 	return nil
 }
 
-func (cd *csifDriver) getVolumeByID(volID string) (*csifVolume, error) {
-	if vol, ok := cd.volumes[volID]; ok {
-		return &vol, nil
+func (cs *csifControllerServer) getVolumeByID(volID string) (*csifVolume, error) {
+	if vol, ok := cs.volumes[volID]; ok {
+		return vol, nil
 	}
 	return nil, fmt.Errorf("no volID=%s in volumes", volID)
 }
 
-func (cd *csifDriver) getVolumeByName(volName string) (*csifVolume, error) {
-	for _, vol := range cd.volumes {
+func (ns *csifNodeServer) getVolumeAttachment(volID string) (*csifVolumeAttachment, error) {
+	if vol, ok := ns.volumes[volID]; ok {
+		return vol, nil
+	}
+	return nil, fmt.Errorf("no volID=%s in volumes", volID)
+}
+
+func (cs *csifControllerServer) getVolumeByName(volName string) (*csifVolume, error) {
+	for _, vol := range cs.volumes {
 		if vol.Name == volName {
-			return &vol, nil
+			return vol, nil
 		}
 	}
 	return nil, fmt.Errorf("no volName=%s in volumes", volName)
 }
 
-func (cd *csifDriver) createVolume(req *csi.CreateVolumeRequest, accessType volAccessType) (*csifVolume, error) {
+func (cd *csifDriver) newDisk(dtype string) (csifDisk, error) {
+	diskFn, ok := cd.diskTypes[dtype]
+	if !ok {
+		return nil, fmt.Errorf("diskType %s is not supported", dtype)
+	}
+	return diskFn(), nil
+}
+
+func (cd *csifDriver) loadDiskJson(dtype string, jsonData string) (csifDisk, error) {
+	disk, err := cd.newDisk(dtype)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(jsonData), disk); err != nil {
+		glog.Fatalf("failed to unmarshal json disk data: %v", err)
+		return nil, err
+	}
+	return disk, nil
+}
+
+func (ns *csifNodeServer) createVolumeAttachment(req *csi.NodeStageVolumeRequest) (*csifVolumeAttachment, error) {
+	dtype, ok := req.GetVolumeContext()["diskType"]
+	if !ok {
+		return nil, fmt.Errorf("no diskType in volumeContext")
+	}
+	data, ok := req.GetVolumeContext()["diskInfo"]
+	if !ok {
+		return nil, fmt.Errorf("no diskInfo in volumeContext")
+	}
+
+	disk, err := ns.cd.loadDiskJson(dtype, data)
+	if err != nil {
+		return nil, err
+	}
+	vol := &csifVolumeAttachment{
+		Disk: disk,
+	}
+	ns.volumes[req.VolumeId] = vol
+	return vol, nil
+}
+
+func (ns *csifNodeServer) deleteVolumeAttachment(volumeID string) error {
+	delete(ns.volumes, volumeID)
+	return nil
+}
+
+func (cs *csifControllerServer) createVolume(req *csi.CreateVolumeRequest, accessType volAccessType) (*csifVolume, error) {
 	name := req.GetName()
 	glog.V(4).Infof("creating csif volume: %s", name)
 
@@ -123,35 +217,43 @@ func (cd *csifDriver) createVolume(req *csi.CreateVolumeRequest, accessType volA
 		return nil, fmt.Errorf("wrong access type %v", accessType)
 	}
 
-	disk := newCsifHostImg()
-	if err := disk.Create(req, volID); err != nil {
-		return nil, fmt.Errorf("failed to create disk: %v", err)
+	dtype, ok := req.GetParameters()["diskType"]
+	if !ok {
+		return nil, fmt.Errorf("missing diskType volume parameter")
+	}
+	disk, err := cs.cd.newDisk(dtype)
+	if err != nil {
+		return nil, err
 	}
 
-	vol := csifVolume{
+	if err := disk.Connect(req, volID); err != nil {
+		return nil, fmt.Errorf("failed to connect disk: %v", err)
+	}
+
+	vol := &csifVolume{
 		Name:       name,
 		ID:         volID,
-		Capacity:   req.CapacityRange.GetRequiredBytes(),
+		Size:       req.CapacityRange.GetRequiredBytes(),
 		AccessType: accessType,
 		Disk:       disk,
 	}
-	cd.volumes[volID] = vol
-	return &vol, nil
+	cs.volumes[volID] = vol
+	return vol, nil
 }
 
-func (cd *csifDriver) deleteVolume(volID string) error {
+func (cs *csifControllerServer) deleteVolume(volID string) error {
 	glog.V(4).Infof("deleting csif volume: %s", volID)
 
-	vol, err := cd.getVolumeByID(volID)
+	vol, err := cs.getVolumeByID(volID)
 	if err != nil {
 		glog.V(5).Infof("deleting nonexistent volume")
 		return nil
 	}
 
-	if err := vol.Disk.Destroy(); err != nil {
-		return fmt.Errorf("failed to destroy disk: %v", err)
+	if err := vol.Disk.Disconnect(); err != nil {
+		return fmt.Errorf("failed to disconnect disk: %v", err)
 	}
 
-	delete(cd.volumes, volID)
+	delete(cs.volumes, volID)
 	return nil
 }

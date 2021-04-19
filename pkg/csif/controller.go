@@ -1,6 +1,7 @@
 package csif
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -10,19 +11,18 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (cd *csifDriver) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+func (cs *csifControllerServer) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	return &csi.ControllerGetCapabilitiesResponse{
-		Capabilities: cd.getCSCapabilities(),
+		Capabilities: cs.getCSCapabilities(),
 	}, nil
 }
 
-func (cd *csifDriver) getCSCapabilities() []*csi.ControllerServiceCapability {
+func (cs *csifControllerServer) getCSCapabilities() []*csi.ControllerServiceCapability {
 	rpcCap := []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT, // TODO: NI
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,          // TODO: NI
 		//csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-		//csi.ControllerServiceCapability_RPC_CLONE_VOLUME, TODO: readonly
 	}
 	var csCap []*csi.ControllerServiceCapability
 
@@ -38,12 +38,12 @@ func (cd *csifDriver) getCSCapabilities() []*csi.ControllerServiceCapability {
 	return csCap
 }
 
-func (cd *csifDriver) validateCSCapability(c csi.ControllerServiceCapability_RPC_Type) error {
+func (cs *csifControllerServer) validateCSCapability(c csi.ControllerServiceCapability_RPC_Type) error {
 	if c == csi.ControllerServiceCapability_RPC_UNKNOWN {
 		return nil
 	}
 
-	for _, cap := range cd.getCSCapabilities() {
+	for _, cap := range cs.getCSCapabilities() {
 		if c == cap.GetRpc().GetType() {
 			return nil
 		}
@@ -73,8 +73,26 @@ func obtainVolumeCapabilitiy(caps []*csi.VolumeCapability) (volAccessType, error
 	return volAccessMount, nil
 }
 
-func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (resp *csi.CreateVolumeResponse, finalErr error) {
-	if err := cd.validateCSCapability(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
+func (cs *csifControllerServer) csifVolumeToCSI(vol *csifVolume, topo []*csi.Topology) *csi.Volume {
+	jbyt, err := json.Marshal(vol.Disk)
+	if err != nil {
+		glog.Fatalf("json conversion failed: %v", err)
+		panic("fatall error")
+	}
+
+	return &csi.Volume{
+		VolumeId:           vol.ID,
+		CapacityBytes:      int64(vol.Size),
+		AccessibleTopology: topo,
+		VolumeContext: map[string]string{
+			"diskType": vol.Disk.GetType(), // TODO: const string
+			"diskInfo": string(jbyt),
+		},
+	}
+}
+
+func (cs *csifControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (resp *csi.CreateVolumeResponse, finalErr error) {
+	if err := cs.validateCSCapability(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
 		glog.V(3).Infof("invalid request: %v", req)
 		return nil, err
 	}
@@ -93,12 +111,11 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 		return nil, err
 	}
 
-	// TODO: check capacity?
 	capacity := int64(req.GetCapacityRange().GetRequiredBytes())
 
-	// TODO: iscsi lun: topology restrictions same as the source volume?
+	// TODO: load and set tology restrictions properly
 	// note: identity.go: VOLUME_ACCESSIBILITY_CONSTRAINTS
-	nodeTopo := csi.Topology{Segments: map[string]string{TopologyKeyNode: cd.nodeID}}
+	nodeTopo := csi.Topology{Segments: map[string]string{TopologyKeyNode: cs.cd.nodeID}}
 	topologies := []*csi.Topology{&nodeTopo}
 
 	if req.GetVolumeContentSource() != nil {
@@ -106,41 +123,30 @@ func (cd *csifDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeReq
 	}
 
 	// If volume exists - verify parameters, respond
-	if vol, err := cd.getVolumeByName(req.GetName()); err == nil {
+	if vol, err := cs.getVolumeByName(req.GetName()); err == nil {
 		glog.V(4).Infof("%s volume exists, veifying parameters", req.GetName())
-		if vol.Capacity != capacity {
+		if vol.Size != capacity {
 			return nil, status.Errorf(codes.AlreadyExists, "vol.size mismatch")
 		}
+
 		return &csi.CreateVolumeResponse{
-			Volume: &csi.Volume{
-				VolumeId:           vol.ID,
-				CapacityBytes:      int64(vol.Capacity),
-				VolumeContext:      req.GetParameters(),
-				ContentSource:      req.GetVolumeContentSource(),
-				AccessibleTopology: topologies,
-			},
+			Volume: cs.csifVolumeToCSI(vol, topologies),
 		}, nil
 	}
 
-	vol, err := cd.createVolume(req, accessType)
+	vol, err := cs.createVolume(req, accessType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create volume %v: %w", req.GetName(), err)
 	}
-	glog.V(4).Infof("volume: %s done", vol.ID)
+	glog.V(4).Infof("volume: %s created", vol.ID)
 
 	return &csi.CreateVolumeResponse{
-		Volume: &csi.Volume{
-			VolumeId:           vol.ID,
-			CapacityBytes:      req.GetCapacityRange().GetRequiredBytes(),
-			VolumeContext:      req.GetParameters(),
-			ContentSource:      req.GetVolumeContentSource(),
-			AccessibleTopology: topologies, // TODO:
-		},
+		Volume: cs.csifVolumeToCSI(vol, topologies),
 	}, nil
 }
 
-func (cd *csifDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	if err := cd.validateCSCapability(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
+func (cs *csifControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+	if err := cs.validateCSCapability(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
 		glog.V(3).Infof("invalid request: %v", req)
 		return nil, err
 	}
@@ -150,7 +156,7 @@ func (cd *csifDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeReq
 	}
 
 	volId := req.GetVolumeId()
-	if err := cd.deleteVolume(volId); err != nil {
+	if err := cs.deleteVolume(volId); err != nil {
 		return nil, fmt.Errorf("deleteVolume %v failed: %w", volId, err)
 	}
 	glog.V(4).Infof("volume %v deleted", volId)
@@ -158,42 +164,42 @@ func (cd *csifDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeReq
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
-func (cd *csifDriver) ControllerPublishVolume(_ context.Context, _ *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+func (cs *csifControllerServer) ControllerPublishVolume(_ context.Context, _ *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) ControllerUnpublishVolume(_ context.Context, _ *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+func (cs *csifControllerServer) ControllerUnpublishVolume(_ context.Context, _ *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+func (cs *csifControllerServer) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) ListVolumes(_ context.Context, _ *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
+func (cs *csifControllerServer) ListVolumes(_ context.Context, _ *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) GetCapacity(_ context.Context, _ *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
+func (cs *csifControllerServer) GetCapacity(_ context.Context, _ *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) CreateSnapshot(_ context.Context, _ *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
+func (cs *csifControllerServer) CreateSnapshot(_ context.Context, _ *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "snapshots are unimplemented")
 }
 
-func (cd *csifDriver) DeleteSnapshot(_ context.Context, _ *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
+func (cs *csifControllerServer) DeleteSnapshot(_ context.Context, _ *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "snapshots are unimplemented")
 }
 
-func (cd *csifDriver) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
+func (cs *csifControllerServer) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "snapshots are unimplemented")
 }
 
-func (cd *csifDriver) ControllerExpandVolume(_ context.Context, _ *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
+func (cs *csifControllerServer) ControllerExpandVolume(_ context.Context, _ *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
 
-func (cd *csifDriver) ControllerGetVolume(_ context.Context, _ *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+func (cs *csifControllerServer) ControllerGetVolume(_ context.Context, _ *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }

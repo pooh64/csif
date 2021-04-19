@@ -10,37 +10,43 @@ import (
 	"k8s.io/kubernetes/pkg/volume/util/volumepathhandler"
 )
 
-func InitHostImages() error {
+func RegisterHostImg() (csifDiskNewFn, error) {
 	if err := os.MkdirAll(csifHostImagesPath, 0750); err != nil {
-		return fmt.Errorf("mkdir: %s: %v", csifHostImagesPath, err)
+		return nil, fmt.Errorf("mkdir: %s: %v", csifHostImagesPath, err)
 	}
 	glog.Infof("Mkdir: %s", csifHostImagesPath)
-	return nil
+	return newCsifHostImg, nil
 }
 
 const (
 	csifHostImagesPath = "/csi-csif-hostimg"
+	csifHostImgName    = "hostimg"
 )
 
 type csifHostImg struct {
-	ImgPath string
+	Size    int64  `json:"Size,string"`
+	ImgPath string `json:"ImgPath"`
 }
 
-func newCsifHostImg() *csifHostImg {
+func newCsifHostImg() csifDisk {
 	return &csifHostImg{}
 }
 
-func (hi *csifHostImg) Create(req *csi.CreateVolumeRequest, volID string) error {
-	var size int64 = req.CapacityRange.GetRequiredBytes()
-	hi.ImgPath = filepath.Join(csifHostImagesPath, volID)
+func (hi *csifHostImg) GetType() string {
+	return csifHostImgName
+}
 
-	if err := createDiskImg(hi.ImgPath, size); err != nil {
-		return fmt.Errorf("create disk img failed: %v", err)
-	}
+func (hi *csifHostImg) Connect(req *csi.CreateVolumeRequest, volID string) error {
+	hi.Size = req.CapacityRange.GetRequiredBytes() // TODO: not less / ignored
+	hi.ImgPath = filepath.Join(csifHostImagesPath, volID)
+	// req.GetParameters()[...]
 	return nil
 }
 
 func (hi *csifHostImg) Attach() (string, error) {
+	if err := createDiskImg(hi.ImgPath, hi.Size); err != nil {
+		return "", fmt.Errorf("create disk img failed: %v", err)
+	}
 	volPathHandler := volumepathhandler.VolumePathHandler{}
 	dev, err := volPathHandler.AttachFileDevice(hi.ImgPath)
 	if err != nil {
@@ -54,6 +60,9 @@ func (hi *csifHostImg) Detach() error {
 	if err := volPathHandler.DetachFileDevice(hi.ImgPath); err != nil {
 		return fmt.Errorf("detachFileDevice failed: %s: %v", hi.ImgPath, err)
 	}
+	if err := destroyDiskImg(hi.ImgPath); err != nil {
+		return fmt.Errorf("destroy disk img failed: %v", err)
+	}
 	return nil
 }
 
@@ -66,10 +75,7 @@ func (hi *csifHostImg) GetPath() (string, error) {
 	return dev, nil
 }
 
-func (hi *csifHostImg) Destroy() error {
-	if err := destroyDiskImg(hi.ImgPath); err != nil {
-		return fmt.Errorf("destroy disk img failed: %v", err)
-	}
+func (hi *csifHostImg) Disconnect() error {
 	return nil
 }
 
