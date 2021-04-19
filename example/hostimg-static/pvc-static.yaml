@@ -1,11 +1,12 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: pvc1
+  name: pvc-hostimg-static
 spec:
   accessModes:
-  - ReadWriteOnce
+    - ReadWriteOnce
   resources:
     requests:
       storage: 5Mi
-  storageClassName: csi-csif-sc
+  volumeName: pv-hostimg-static
+  storageClassName: ""

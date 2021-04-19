@@ -72,9 +72,9 @@ func (ns *csifNodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStag
 		return nil, fmt.Errorf("failed to create volume attachment: %v", err)
 	}
 
-	bdev, err := vol.Disk.Attach()
+	bdev, err := vol.Disk.GetPath()
 	if err != nil {
-		return nil, fmt.Errorf("failed to attach disk: %v", err)
+		return nil, fmt.Errorf("failed to get bdev path: %v", err)
 	}
 
 	if req.GetVolumeCapability().GetBlock() != nil {
@@ -83,8 +83,8 @@ func (ns *csifNodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStag
 	}
 
 	if err := ns.stageDeviceMount(req, bdev); err != nil {
-		if err := vol.Disk.Detach(); err != nil {
-			glog.Errorf("destroy bdev failed: %v", err)
+		if err := ns.deleteVolumeAttachment(req.GetVolumeId()); err != nil {
+			glog.Errorf("delete volume attachment failed: %v", err)
 		}
 		return nil, fmt.Errorf("format and mount failed: %v", err)
 	}
@@ -103,6 +103,7 @@ func (ns *csifNodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUn
 	vol, err := ns.getVolumeAttachment(volID)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
+		// TODO: After plugin restart CO keeps asking me to unstage the volume. What to do?
 	}
 
 	if vol.StagingPath == "" { // if not staged
@@ -111,13 +112,8 @@ func (ns *csifNodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUn
 
 	ns.unstageDevice(req) // if staging MP exists - unmount
 
-	if err = vol.Disk.Detach(); err != nil {
-		return nil, fmt.Errorf("detach disk failed: %v", err)
-	}
-	vol.StagingPath = "" // unstaged
-
 	if err := ns.deleteVolumeAttachment(volID); err != nil {
-		return nil, fmt.Errorf("delte volume attachment failed: %v", err)
+		return nil, fmt.Errorf("failed to delete volume attachment: %v", err)
 	}
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
@@ -260,7 +256,7 @@ func (ns *csifNodeServer) NodeExpandVolume(_ context.Context, _ *csi.NodeExpandV
 func (ns *csifNodeServer) getNSCapabilities() []*csi.NodeServiceCapability {
 	rpcCap := []csi.NodeServiceCapability_RPC_Type{
 		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
-		csi.NodeServiceCapability_RPC_EXPAND_VOLUME, // TODO: NI
+		csi.NodeServiceCapability_RPC_EXPAND_VOLUME, // TODO: NI, remove
 	}
 
 	var nsCap []*csi.NodeServiceCapability

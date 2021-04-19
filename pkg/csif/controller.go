@@ -1,7 +1,6 @@
 package csif
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -20,8 +19,8 @@ func (cs *csifControllerServer) ControllerGetCapabilities(ctx context.Context, r
 func (cs *csifControllerServer) getCSCapabilities() []*csi.ControllerServiceCapability {
 	rpcCap := []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT, // TODO: NI
-		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,          // TODO: NI
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT, // TODO: NI, remove
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,          // TODO: NI, remove
 		//csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 	}
 	var csCap []*csi.ControllerServiceCapability
@@ -74,20 +73,13 @@ func obtainVolumeCapabilitiy(caps []*csi.VolumeCapability) (volAccessType, error
 }
 
 func (cs *csifControllerServer) csifVolumeToCSI(vol *csifVolume, topo []*csi.Topology) *csi.Volume {
-	jbyt, err := json.Marshal(vol.Disk)
-	if err != nil {
-		glog.Fatalf("json conversion failed: %v", err)
-		panic("fatall error")
-	}
+	attr := cs.cd.csifDiskGetAttributes(vol.Disk)
 
 	return &csi.Volume{
 		VolumeId:           vol.ID,
 		CapacityBytes:      int64(vol.Size),
 		AccessibleTopology: topo,
-		VolumeContext: map[string]string{
-			"diskType": vol.Disk.GetType(), // TODO: const string
-			"diskInfo": string(jbyt),
-		},
+		VolumeContext:      attr,
 	}
 }
 

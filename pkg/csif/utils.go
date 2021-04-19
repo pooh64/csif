@@ -16,7 +16,7 @@ func newUUID() (string, error) {
 	return id.String(), nil
 }
 
-func createDiskImg(path string, size int64) error {
+func createImg(path string, size int64) error {
 	executor := exec.New()
 
 	// Check path and allocate if needed
@@ -34,7 +34,7 @@ func createDiskImg(path string, size int64) error {
 	return nil
 }
 
-func destroyDiskImg(path string) error {
+func destroyImg(path string) error {
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("remove failed: %s: %v", path, err)
 	}

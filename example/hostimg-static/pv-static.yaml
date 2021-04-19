@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-hostimg-static
+spec:
+  capacity:
+    storage: 5Mi
+  accessModes:
+    - ReadWriteOnce
+  #mountOptions:
+  persistentVolumeReclaimPolicy: Retain # Delete probably. Hostimg deletes img while detaching
+  csi:
+    driver: csif.csi.pooh64.io
+    readOnly: false
+    volumeHandle: pv-hostimg-static-uid
+    volumeAttributes:
+      diskType: hostimg
+      diskImgPath: /csi-csif-hostimg/pv-hostimg-static-uid
+      diskSize: "5000000"

@@ -1,7 +1,6 @@
 package csif
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -13,18 +12,6 @@ import (
 const (
 	mib = 1024 * 1024
 )
-
-type csifDiskNewFn = func() csifDisk
-
-type csifDisk interface {
-	Connect(req *csi.CreateVolumeRequest, volID string) error
-	Disconnect() error
-	Attach() (string, error)
-	Detach() error
-	GetPath() (string, error)
-	GetType() string
-	// VerifyParam() TODO: idempotent CS
-}
 
 type volAccessType int
 
@@ -112,11 +99,11 @@ func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerN
 		diskTypes: map[string]csifDiskNewFn{},
 	}
 
-	fn, err := RegisterHostImg()
+	dtype, fn, err := RegisterHostImg()
 	if err != nil {
 		return nil, fmt.Errorf("failed to register %s driver: %v", csifHostImgName, err)
 	}
-	cf.diskTypes[csifHostImgName] = fn
+	cf.diskTypes[dtype] = fn
 
 	glog.Infof("New Driver: name=%v version=%v", name, version)
 
@@ -156,40 +143,12 @@ func (cs *csifControllerServer) getVolumeByName(volName string) (*csifVolume, er
 	return nil, fmt.Errorf("no volName=%s in volumes", volName)
 }
 
-func (cd *csifDriver) newDisk(dtype string) (csifDisk, error) {
-	diskFn, ok := cd.diskTypes[dtype]
-	if !ok {
-		return nil, fmt.Errorf("diskType %s is not supported", dtype)
-	}
-	return diskFn(), nil
-}
-
-func (cd *csifDriver) loadDiskJson(dtype string, jsonData string) (csifDisk, error) {
-	disk, err := cd.newDisk(dtype)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal([]byte(jsonData), disk); err != nil {
-		glog.Fatalf("failed to unmarshal json disk data: %v", err)
-		return nil, err
-	}
-	return disk, nil
-}
-
 func (ns *csifNodeServer) createVolumeAttachment(req *csi.NodeStageVolumeRequest) (*csifVolumeAttachment, error) {
-	dtype, ok := req.GetVolumeContext()["diskType"]
-	if !ok {
-		return nil, fmt.Errorf("no diskType in volumeContext")
-	}
-	data, ok := req.GetVolumeContext()["diskInfo"]
-	if !ok {
-		return nil, fmt.Errorf("no diskInfo in volumeContext")
+	disk, err := ns.cd.csifDiskAttach(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach disk: %v", err)
 	}
 
-	disk, err := ns.cd.loadDiskJson(dtype, data)
-	if err != nil {
-		return nil, err
-	}
 	vol := &csifVolumeAttachment{
 		Disk: disk,
 	}
@@ -198,6 +157,11 @@ func (ns *csifNodeServer) createVolumeAttachment(req *csi.NodeStageVolumeRequest
 }
 
 func (ns *csifNodeServer) deleteVolumeAttachment(volumeID string) error {
+	vol := ns.volumes[volumeID]
+	if err := vol.Disk.Detach(); err != nil {
+		glog.Errorf("failed to detach disk while detaching pvc")
+		return err
+	}
 	delete(ns.volumes, volumeID)
 	return nil
 }
@@ -217,17 +181,9 @@ func (cs *csifControllerServer) createVolume(req *csi.CreateVolumeRequest, acces
 		return nil, fmt.Errorf("wrong access type %v", accessType)
 	}
 
-	dtype, ok := req.GetParameters()["diskType"]
-	if !ok {
-		return nil, fmt.Errorf("missing diskType volume parameter")
-	}
-	disk, err := cs.cd.newDisk(dtype)
+	disk, err := cs.cd.csifDiskCreate(req, volID)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := disk.Connect(req, volID); err != nil {
-		return nil, fmt.Errorf("failed to connect disk: %v", err)
+		return nil, fmt.Errorf("failed to create disk: %v", err)
 	}
 
 	vol := &csifVolume{
@@ -250,7 +206,7 @@ func (cs *csifControllerServer) deleteVolume(volID string) error {
 		return nil
 	}
 
-	if err := vol.Disk.Disconnect(); err != nil {
+	if err := vol.Disk.Destroy(); err != nil {
 		return fmt.Errorf("failed to disconnect disk: %v", err)
 	}
 
