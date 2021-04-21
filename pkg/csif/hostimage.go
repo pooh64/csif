@@ -37,7 +37,7 @@ func (hi *csifHostImg) GetType() string {
 }
 
 func (hi *csifHostImg) Create(req *csi.CreateVolumeRequest, volID string) error {
-	hi.Size = req.CapacityRange.GetRequiredBytes() // TODO: not less / ignored
+	hi.Size = req.CapacityRange.GetRequiredBytes()
 	hi.ImgPath = filepath.Join(csifHostImagesPath, volID)
 	// req.GetParameters()[...]
 	return nil

@@ -10,7 +10,62 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/mount-utils"
+	"k8s.io/utils/exec"
 )
+
+type csifNodeServer struct {
+	cd      *csifDriver
+	mounter mount.SafeFormatAndMount
+	volumes map[string]*csifVolumeAttachment
+}
+
+func NewCsifNodeServer(driver *csifDriver) *csifNodeServer {
+	mounter := mount.SafeFormatAndMount{
+		Interface: mount.New(""),
+		Exec:      exec.New(),
+	}
+
+	return &csifNodeServer{
+		cd:      driver,
+		mounter: mounter,
+		volumes: map[string]*csifVolumeAttachment{},
+	}
+}
+
+type csifVolumeAttachment struct {
+	Disk        csifDisk
+	StagingPath string
+}
+
+func (ns *csifNodeServer) getVolumeAttachment(volID string) (*csifVolumeAttachment, error) {
+	if vol, ok := ns.volumes[volID]; ok {
+		return vol, nil
+	}
+	return nil, fmt.Errorf("no volID=%s in volumes", volID)
+}
+
+func (ns *csifNodeServer) createVolumeAttachment(req *csi.NodeStageVolumeRequest) (*csifVolumeAttachment, error) {
+	disk, err := ns.cd.csifDiskAttach(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach disk: %v", err)
+	}
+
+	vol := &csifVolumeAttachment{
+		Disk: disk,
+	}
+	ns.volumes[req.VolumeId] = vol
+	return vol, nil
+}
+
+func (ns *csifNodeServer) deleteVolumeAttachment(volumeID string) error {
+	vol := ns.volumes[volumeID]
+	if err := vol.Disk.Detach(); err != nil {
+		glog.Errorf("failed to detach disk while detaching pvc")
+		return err
+	}
+	delete(ns.volumes, volumeID)
+	return nil
+}
 
 func (ns *csifNodeServer) stageDeviceMount(req *csi.NodeStageVolumeRequest, devPath string) error {
 	mntPath := req.GetStagingTargetPath()
