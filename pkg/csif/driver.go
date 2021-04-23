@@ -44,9 +44,9 @@ func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerN
 		diskTypes: map[string]csifDiskNewFn{},
 	}
 
-	dtype, fn, err := RegisterHostImg()
+	dtype, fn, err := RegisterDiskHostImg()
 	if err != nil {
-		return nil, fmt.Errorf("failed to register %s driver: %v", csifHostImgName, err)
+		return nil, fmt.Errorf("failed to register DiskHostImg driver: %v", err)
 	}
 	cf.diskTypes[dtype] = fn
 

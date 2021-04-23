@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-iscsi
+spec:
+  capacity:
+    storage: 5Mi
+  accessModes:
+    - ReadWriteOnce
+  #mountOptions:
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: csif.csi.pooh64.io
+    # fsType: ext4
+    readOnly: false
+    volumeHandle: pv-iscsi-uid
+    volumeAttributes:
+      diskType: iscsi
+      targetPortal: X.X.X.X
+      iqn: iqn.2021-01.example.server:storage.target00
+      lun: "0"
+      # fsType: ext4
+      # readOnly: false

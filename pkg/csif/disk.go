@@ -19,6 +19,9 @@ const (
 // NS: csifDiskAttach() -> GetPath() -> Detach()
 type csifDisk interface {
 	GetType() string
+	// TODO:
+	// GetConfigIn() interface{}
+	// GetConfigOut() interface{}
 
 	// CS routine: process sclass volumeAttributes: check, provision
 	Create(req *csi.CreateVolumeRequest, volID string) error

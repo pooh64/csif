@@ -11,43 +11,43 @@ import (
 )
 
 const (
-	csifHostImagesPath = "/csi-csif-hostimg"
-	csifHostImgName    = "hostimg"
+	csifHostImagesPath  = "/csi-csif-hostimg"
+	csifDiskTypeHostImg = "hostimg"
 )
 
-type csifHostImg struct {
+type csifDiskHostImg struct {
 	Size    int64  `json:"diskSize,string"`
 	ImgPath string `json:"diskImgPath"`
 }
 
-func RegisterHostImg() (string, csifDiskNewFn, error) {
+func RegisterDiskHostImg() (string, csifDiskNewFn, error) {
 	if err := os.MkdirAll(csifHostImagesPath, 0750); err != nil {
 		return "", nil, fmt.Errorf("mkdir: %s: %v", csifHostImagesPath, err)
 	}
 	glog.Infof("Mkdir: %s", csifHostImagesPath)
-	return csifHostImgName, newCsifHostImg, nil
+	return csifDiskTypeHostImg, newCsifDiskHostImg, nil
 }
 
-func newCsifHostImg() csifDisk {
-	return &csifHostImg{}
+func newCsifDiskHostImg() csifDisk {
+	return &csifDiskHostImg{}
 }
 
-func (hi *csifHostImg) GetType() string {
-	return csifHostImgName
+func (hi *csifDiskHostImg) GetType() string {
+	return csifDiskTypeHostImg
 }
 
-func (hi *csifHostImg) Create(req *csi.CreateVolumeRequest, volID string) error {
+func (hi *csifDiskHostImg) Create(req *csi.CreateVolumeRequest, volID string) error {
 	hi.Size = req.CapacityRange.GetRequiredBytes()
 	hi.ImgPath = filepath.Join(csifHostImagesPath, volID)
 	// req.GetParameters()[...]
 	return nil
 }
 
-func (hi *csifHostImg) Destroy() error {
+func (hi *csifDiskHostImg) Destroy() error {
 	return nil
 }
 
-func (hi *csifHostImg) Attach(req *csi.NodeStageVolumeRequest) (string, error) {
+func (hi *csifDiskHostImg) Attach(req *csi.NodeStageVolumeRequest) (string, error) {
 	if err := createImg(hi.ImgPath, hi.Size); err != nil {
 		return "", fmt.Errorf("create disk img failed: %v", err)
 	}
@@ -60,7 +60,7 @@ func (hi *csifHostImg) Attach(req *csi.NodeStageVolumeRequest) (string, error) {
 	return dev, nil
 }
 
-func (hi *csifHostImg) Detach() error {
+func (hi *csifDiskHostImg) Detach() error {
 	volPathHandler := volumepathhandler.VolumePathHandler{}
 	if err := volPathHandler.DetachFileDevice(hi.ImgPath); err != nil {
 		return fmt.Errorf("detachFileDevice failed: %s: %v", hi.ImgPath, err)
@@ -71,7 +71,7 @@ func (hi *csifHostImg) Detach() error {
 	return nil
 }
 
-func (hi *csifHostImg) GetPath() (string, error) {
+func (hi *csifDiskHostImg) GetPath() (string, error) {
 	volPathHandler := volumepathhandler.VolumePathHandler{}
 	dev, err := volPathHandler.GetLoopDevice(hi.ImgPath)
 	if err != nil {

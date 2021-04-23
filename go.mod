@@ -1,18 +1,21 @@
 module github.com/pooh64/csif-driver
 
-go 1.13
+go 1.16
 
 require (
-	github.com/container-storage-interface/spec v1.3.0
+	github.com/container-storage-interface/spec v1.4.0
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/google/uuid v1.1.2
-	github.com/kubernetes-csi/csi-lib-utils v0.9.0
-	golang.org/x/net v0.0.0-20210224082022-3d97a244fca7
-	google.golang.org/genproto v0.0.0-20201209185603-f92720507ed4 // indirect
-	google.golang.org/grpc v1.34.0
+	github.com/google/uuid v1.2.0
+	github.com/kubernetes-csi/csi-lib-utils v0.9.1
+	github.com/pooh64/csi-lib-iscsi v1.0.0
+	golang.org/x/net v0.0.0-20210423184538-5f58ad60dda6
+	golang.org/x/sys v0.0.0-20210423185535-09eb48e85fd7 // indirect
+	google.golang.org/genproto v0.0.0-20210423144448-3a41ef94ed2b // indirect
+	google.golang.org/grpc v1.37.0
+	k8s.io/apimachinery v0.21.0 // indirect
 	k8s.io/kubernetes v1.21.0
-	k8s.io/mount-utils v0.20.0
-	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
+	k8s.io/mount-utils v0.21.0
+	k8s.io/utils v0.0.0-20210305010621-2afb4311ab10
 )
 
 replace (
