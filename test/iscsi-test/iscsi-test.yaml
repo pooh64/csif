@@ -1,0 +1,24 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: ds-iscsi-test
+spec:
+  selector:
+    matchLabels:
+      app: ds-iscsi-test
+  template:
+    metadata:
+      labels:
+        app: ds-iscsi-test
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: iscsi-test
+          image: pooh64/iscsi-test:latest
+          imagePullPolicy: Always
+          command: [ "sleep", "3000" ]
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]

@@ -61,7 +61,7 @@ spec:
 #################################################
         - name: csif
           image: pooh64/csif-plugin:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           args:
             - "--drivername=csif.csi.pooh64.io"
             - "--v=5"
@@ -101,6 +101,8 @@ spec:
               mountPath: /dev
           securityContext:
             privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
 #################################################
       volumes:
         - name: socket-dir
