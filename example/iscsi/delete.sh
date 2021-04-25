@@ -1,5 +1,5 @@
 #!/bin/sh
 
-kubectl apply -f pod-iscsi.yaml
-kubectl apply -f pvc-iscsi.yaml
-kubectl apply -f pv-iscsi.yaml
+kubectl delete -f pod-iscsi.yaml
+kubectl delete -f pvc-iscsi.yaml
+kubectl delete -f pv-iscsi.yaml

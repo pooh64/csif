@@ -16,8 +16,8 @@ spec:
     volumeHandle: pv-iscsi-uid
     volumeAttributes:
       diskType: iscsi
-      targetPortal: X.X.X.X
-      iqn: iqn.2021-01.example.server:storage.target00
-      lun: "0"
+      targetPortal: 10.138.0.11
+      iqn: iqn.com.example.test:98f1
+      lun: "1"
       # fsType: ext4
       # readOnly: false

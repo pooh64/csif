@@ -20,7 +20,7 @@ type csifDiskHostImg struct {
 	ImgPath string `json:"diskImgPath"`
 }
 
-func RegisterDiskHostImg() (string, csifDiskNewFn, error) {
+func RegisterDiskTypeHostImg() (string, csifDiskNewFn, error) {
 	if err := os.MkdirAll(csifHostImagesPath, 0750); err != nil {
 		return "", nil, fmt.Errorf("mkdir: %s: %v", csifHostImagesPath, err)
 	}

@@ -2,7 +2,7 @@ package csif
 
 import (
 	"fmt"
-	"strings"
+	"os"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	lib_iscsi "github.com/pooh64/csi-lib-iscsi/iscsi"
@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	csifDiskTypeISCSI = "hostimg"
+	csifDiskTypeISCSI = "iscsi"
 )
 
 type csifDiskISCSI struct {
@@ -19,11 +19,13 @@ type csifDiskISCSI struct {
 	Iqn          string `json:"iqn"`
 	Lun          int32  `json:"lun,string"`
 
-	name string `json:"-"`
-	conn *lib_iscsi.Connector
+	name string               `json:"-"`
+	dev  string               `json:"-"`
+	conn *lib_iscsi.Connector `json:"-"`
 }
 
 func RegisterDiskTypeISCSI() (string, csifDiskNewFn, error) {
+	lib_iscsi.EnableDebugLogging(os.Stdout)
 	return csifDiskTypeISCSI, newCsifDiskISCSI, nil
 }
 
@@ -45,28 +47,24 @@ func (d *csifDiskISCSI) Destroy() error {
 	return status.Errorf(codes.Unimplemented, "")
 }
 
-func iscsiSetDefaultPort(portal string) string {
-	if !strings.Contains(portal, ":") {
-		portal = portal + ":3260"
-	}
-	return portal
-}
-
 func (d *csifDiskISCSI) Attach(req *csi.NodeStageVolumeRequest) (string, error) {
-	d.TargetPortal = iscsiSetDefaultPort(d.TargetPortal)
+	//d.TargetPortal = iscsiSetDefaultPort(d.TargetPortal)
 	d.name = req.GetVolumeId()
 
 	target := lib_iscsi.TargetInfo{Iqn: d.Iqn, Portal: d.TargetPortal, Port: ""}
 	d.conn = &lib_iscsi.Connector{
-		VolumeName: d.name,
-		Targets:    []lib_iscsi.TargetInfo{target},
-		Multipath:  false,
+		VolumeName:  d.name,
+		Targets:     []lib_iscsi.TargetInfo{target},
+		Lun:         d.Lun,
+		Multipath:   false,
+		DoDiscovery: true,
 	}
 
 	dev, err := lib_iscsi.Connect(*d.conn)
 	if err != nil {
 		return "", fmt.Errorf("iscsi connect failed: %v", err)
 	}
+	d.dev = dev
 	return dev, nil
 	// TODO:
 	//file := path.Join(req.GetTargetPath(), d.name+".json")
@@ -81,8 +79,8 @@ func (d *csifDiskISCSI) Detach() error {
 }
 
 func (d *csifDiskISCSI) GetPath() (string, error) {
-	if d.conn.DevicePath == "" {
+	if d.dev == "" {
 		return "", fmt.Errorf("device not mounted")
 	}
-	return d.conn.DevicePath, nil
+	return d.dev, nil
 }

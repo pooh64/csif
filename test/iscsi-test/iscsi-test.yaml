@@ -17,7 +17,7 @@ spec:
         - name: iscsi-test
           image: pooh64/iscsi-test:latest
           imagePullPolicy: Always
-          command: [ "sleep", "3000" ]
+          command: [ "sleep", "infinity" ]
           securityContext:
             privileged: true
             capabilities:
