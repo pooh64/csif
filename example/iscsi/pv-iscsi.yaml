@@ -17,6 +17,7 @@ spec:
     volumeAttributes:
       diskType: iscsi
       targetPortal: 10.138.0.11
+      port: "3260" # TODO: test
       iqn: iqn.com.example.test:98f1
       lun: "1"
       # fsType: ext4

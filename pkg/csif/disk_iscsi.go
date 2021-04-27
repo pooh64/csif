@@ -16,6 +16,7 @@ const (
 
 type csifDiskISCSI struct {
 	TargetPortal string `json:"targetPortal"`
+	Port         string `json:"port"`
 	Iqn          string `json:"iqn"`
 	Lun          int32  `json:"lun,string"`
 
@@ -51,7 +52,7 @@ func (d *csifDiskISCSI) Attach(req *csi.NodeStageVolumeRequest) (string, error) 
 	//d.TargetPortal = iscsiSetDefaultPort(d.TargetPortal)
 	d.name = req.GetVolumeId()
 
-	target := lib_iscsi.TargetInfo{Iqn: d.Iqn, Portal: d.TargetPortal, Port: ""}
+	target := lib_iscsi.TargetInfo{Iqn: d.Iqn, Portal: d.TargetPortal, Port: d.Port}
 	d.conn = &lib_iscsi.Connector{
 		VolumeName:  d.name,
 		Targets:     []lib_iscsi.TargetInfo{target},
@@ -72,7 +73,8 @@ func (d *csifDiskISCSI) Attach(req *csi.NodeStageVolumeRequest) (string, error) 
 }
 
 func (d *csifDiskISCSI) Detach() error {
-	if err := lib_iscsi.Disconnect(d.Iqn, []string{d.TargetPortal}); err != nil {
+	portal := d.TargetPortal + ":" + d.Port
+	if err := lib_iscsi.Disconnect(d.Iqn, []string{portal}); err != nil {
 		return fmt.Errorf("iscsi disconnect failed: %v", err)
 	}
 	return nil

@@ -8,6 +8,12 @@ import (
 	"k8s.io/utils/exec"
 )
 
+func cleanup(err *error, f func()) {
+	if err != nil {
+		f()
+	}
+}
+
 func newUUID() (string, error) {
 	id, err := uuid.NewUUID()
 	if err != nil {

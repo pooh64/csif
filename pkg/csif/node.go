@@ -19,7 +19,7 @@ type csifNodeServer struct {
 	volumes map[string]*csifVolumeAttachment
 }
 
-func NewCsifNodeServer(driver *csifDriver) *csifNodeServer {
+func newCsifNodeServer(driver *csifDriver) *csifNodeServer {
 	mounter := mount.SafeFormatAndMount{
 		Interface: mount.New(""),
 		Exec:      exec.New(),

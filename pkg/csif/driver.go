@@ -62,7 +62,7 @@ func NewCsifDriver(name, nodeID, endpoint string, version string, maxVolumesPerN
 }
 
 func (cd *csifDriver) Run() error {
-	cd.ns = NewCsifNodeServer(cd)
+	cd.ns = newCsifNodeServer(cd)
 	cs := NewCsifControllerServer(cd)
 
 	server := NewNbServer()
