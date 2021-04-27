@@ -4,49 +4,72 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/golang/glog"
 	lib_iscsi "github.com/pooh64/csi-lib-iscsi/iscsi"
 	"github.com/pooh64/csif-driver/pkg/filter"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 const (
-	csifFilterIQNPrefix = "iqn.com.pooh64.csi.csif.filter"
+	CsifFServerIQNPrefix = "iqn.com.pooh64.csi.csif.filter"
+	CsifFClientIQNPrefix = "iqn.com.pooh64.csi.csif.client"
 )
 
 type csifFilterEntry struct {
-	conn lib_iscsi.Connector
+	conn *lib_iscsi.Connector
 	dev  string
 	out  *iscsiTarget
 }
 
 type csifFilterServer struct {
-	portal string
-	tgtd   *csifTGTD
-	disks  map[string]*csifFilterEntry
+	endpoint string
+	tgtd     *csifTGTD
+	disks    map[string]*csifFilterEntry
 }
 
-func newCsifFilterServer(portal string, port uint32) *csifFilterServer {
+func NewCsifFilterServer(endpoint string, tgtd *csifTGTD) (*csifFilterServer, error) {
 	return &csifFilterServer{
-		portal: portal,
-		tgtd:   NewCsifTGTD(port, csifFilterIQNPrefix),
-		disks:  map[string]*csifFilterEntry{},
-	}
+		endpoint: endpoint,
+		tgtd:     tgtd,
+		disks:    map[string]*csifFilterEntry{},
+	}, nil
 }
 
-func (cf *csifFilterServer) getIdFromSrc(src *filter.FilterDeviceInfo) string {
+func csifFilterLogInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	glog.V(3).Infof("call: %s", info.FullMethod)
+	glog.V(4).Infof("request: %+v", req)
+
+	resp, err := handler(ctx, req)
+	if err != nil {
+		glog.Errorf("error: %v", err)
+	} else {
+		glog.V(4).Infof("response: %+v", resp)
+	}
+	return resp, err
+}
+
+func (cf *csifFilterServer) Run() error {
+	server := NewNbServer()
+	server.Start(cf.endpoint, nil, csifFilterLogInterceptor)
+	server.Wait()
+	return nil
+}
+
+func filterGetIdFromSrc(src *filter.FilterDeviceInfo) string {
 	return src.GetTp() + "-" + fmt.Sprint(src.GetPort()) + "-" + src.GetIqn()
 }
 
 func (cf *csifFilterServer) CreateFilter(ctx context.Context, req *filter.CreateFilterRequest) (*filter.CreateFilterResponse, error) {
 	src := req.GetClientDev()
-	id := cf.getIdFromSrc(src)
+	id := filterGetIdFromSrc(src)
 
 	if _, ok := cf.disks[id]; ok {
 		return nil, status.Errorf(codes.AlreadyExists, "device already filtered")
 	}
 
-	conn := lib_iscsi.Connector{
+	conn := &lib_iscsi.Connector{
 		VolumeName: id,
 		Targets: []lib_iscsi.TargetInfo{{
 			Iqn:    src.GetIqn(),
@@ -57,7 +80,7 @@ func (cf *csifFilterServer) CreateFilter(ctx context.Context, req *filter.Create
 		DoDiscovery: true,
 	}
 
-	dev, err := lib_iscsi.Connect(conn)
+	dev, err := lib_iscsi.Connect(*conn)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "iscsi connect failed: %v", err)
 	}
@@ -74,15 +97,15 @@ func (cf *csifFilterServer) CreateFilter(ctx context.Context, req *filter.Create
 	}
 	return &filter.CreateFilterResponse{
 		ServerDev: &filter.FilterDeviceInfo{
-			Tp:   cf.portal,
-			Port: out.port,
+			Tp:   cf.tgtd.portal,
+			Port: cf.tgtd.port,
 			Iqn:  out.iqn},
 	}, nil
 }
 
 func (cf *csifFilterServer) DeleteFilter(ctx context.Context, req *filter.DeleteFilterRequest) (*filter.DeleteFilterResponse, error) {
 	src := req.GetClientDev()
-	id := cf.getIdFromSrc(src)
+	id := filterGetIdFromSrc(src)
 
 	entry, ok := cf.disks[id]
 	if !ok {

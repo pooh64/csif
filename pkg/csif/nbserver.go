@@ -7,19 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/golang/glog"
-	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
-
-type NbServer interface {
-	Start(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer)
-	Stop()
-	ForceStop()
-	Wait()
-}
 
 type nbServer struct {
 	server *grpc.Server
@@ -42,9 +32,9 @@ func (s *nbServer) ForceStop() {
 	s.server.Stop()
 }
 
-func (s *nbServer) Start(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer) {
+func (s *nbServer) Start(endpoint string, prep func(*grpc.Server), li grpc.UnaryServerInterceptor) {
 	s.wg.Add(1)
-	go s.serve(endpoint, ids, cs, ns)
+	go s.serve(endpoint, prep, li)
 }
 
 func parseSockEndpoint(ep string) (string, string, error) {
@@ -57,23 +47,7 @@ func parseSockEndpoint(ep string) (string, string, error) {
 	return "", "", fmt.Errorf("parseEndpoint: invalid: %v", ep)
 }
 
-func logInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	if info.FullMethod == "/csi.v1.Identity/Probe" {
-		return handler(ctx, req)
-	}
-	glog.V(3).Infof("call: %s", info.FullMethod)
-	glog.V(4).Infof("request: %+v", protosanitizer.StripSecrets(req))
-
-	resp, err := handler(ctx, req)
-	if err != nil {
-		glog.Errorf("error: %v", err)
-	} else {
-		glog.V(4).Infof("response: %+v", protosanitizer.StripSecrets(resp))
-	}
-	return resp, err
-}
-
-func (s *nbServer) serve(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer) {
+func (s *nbServer) serve(endpoint string, prep func(*grpc.Server), li grpc.UnaryServerInterceptor) {
 	network, addr, err := parseSockEndpoint(endpoint)
 	if err != nil {
 		glog.Fatal(err.Error())
@@ -92,18 +66,12 @@ func (s *nbServer) serve(endpoint string, ids csi.IdentityServer, cs csi.Control
 	}
 
 	server_opts := []grpc.ServerOption{
-		grpc.UnaryInterceptor(logInterceptor),
+		grpc.UnaryInterceptor(li),
 	}
 	s.server = grpc.NewServer(server_opts...)
 
-	if ids != nil {
-		csi.RegisterIdentityServer(s.server, ids)
-	}
-	if cs != nil {
-		csi.RegisterControllerServer(s.server, cs)
-	}
-	if ns != nil {
-		csi.RegisterNodeServer(s.server, ns)
+	if prep != nil {
+		prep(s.server)
 	}
 
 	glog.Infof("Listen, Serve: %#v", listener.Addr())

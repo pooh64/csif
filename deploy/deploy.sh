@@ -5,5 +5,6 @@
 
 kubectl apply -f rbac-controller.yaml
 kubectl apply -f driverinfo.yaml
+kubectl apply -f filter.yaml
 kubectl apply -f controller.yaml
 kubectl apply -f node.yaml

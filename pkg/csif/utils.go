@@ -2,10 +2,11 @@ package csif
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/google/uuid"
-	"k8s.io/utils/exec"
+	utilexec "k8s.io/utils/exec"
 )
 
 func cleanup(err *error, f func()) {
@@ -23,7 +24,7 @@ func newUUID() (string, error) {
 }
 
 func createImg(path string, size int64) error {
-	executor := exec.New()
+	executor := utilexec.New()
 
 	// Check path and allocate if needed
 	_, err := os.Stat(path)
@@ -56,4 +57,22 @@ func makeFile(pathname string) error {
 	}
 	defer f.Close()
 	return nil
+}
+
+// Get host IP for iscsi requests
+func GetPortal() (string, error) {
+	host, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	addrs, err := net.LookupIP(host)
+	if err != nil {
+		return "", err
+	}
+	for _, addr := range addrs {
+		if ipv4 := addr.To4(); ipv4 != nil {
+			return ipv4.String(), nil
+		}
+	}
+	return "", fmt.Errorf("hostname ip not found")
 }

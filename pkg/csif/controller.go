@@ -22,7 +22,7 @@ type csifControllerServer struct {
 	volumes map[string]*csifVolume
 }
 
-func NewCsifControllerServer(driver *csifDriver) *csifControllerServer {
+func newCsifControllerServer(driver *csifDriver) *csifControllerServer {
 	return &csifControllerServer{
 		cd:      driver,
 		volumes: map[string]*csifVolume{},

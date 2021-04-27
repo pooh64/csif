@@ -21,7 +21,7 @@ spec:
           args:
             - --csi-address=/csi/csi.sock
             - --probe-timeout=3s
-            - --health-port=9897
+            - --health-port=9830
             - --v=2
           volumeMounts:
             - name: socket-dir
@@ -67,6 +67,9 @@ spec:
             - "--v=5"
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--nodeid=$(NODE_NAME)"
+            - "--filteraddr=csi-csif-fs-0:9820"
+            - "--tgtport=9822"
+            - "--tgtcontrol=9722"
           env:
             - name: NODE_NAME
               valueFrom:
@@ -75,7 +78,7 @@ spec:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
           ports:
-            - containerPort: 9897
+            - containerPort: 9830
               name: healthz
               protocol: TCP
           livenessProbe:

@@ -1,0 +1,53 @@
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: csi-csif-fs
+#  namespace: kube-system
+spec:
+  serviceName: csi-csif-fs
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-csif-fs
+  template:
+    metadata:
+      labels:
+        app: csi-csif-fs
+    spec:
+      serviceAccountName: csi-csif-fs-sa 
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      # priorityClassName: system-cluster-critical # requires kube-system
+      #tolerations:
+      #  - key: "node-role.kubernetes.io/master"
+      #    operator: "Equal"
+      #    value: "true"
+      #    effect: "NoSchedule"
+      containers:
+        - name: filter
+          image: pooh64/csif-filter:latest
+          imagePullPolicy: Always
+          args:
+            - "--endpoint=tcp://:9820"
+            - "--tgtport=9821"
+            - "--tgtcontrol=9721"
+          volumeMounts:
+            - name: dev-dir
+              mountPath: /dev
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+            requests:
+              cpu: 50m
+              memory: 20Mi
+#################################################
+      volumes:
+        - name: dev-dir
+          hostPath:
+            path: /dev
+            type: Directory

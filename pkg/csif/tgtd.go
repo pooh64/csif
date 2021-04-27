@@ -13,17 +13,42 @@ const (
 )
 
 type csifTGTD struct {
-	port    uint32 // set // TODO: string?
-	iqnPref string // set
+	control uint32
+	iqnPref string
 	targets map[int]*iscsiTarget
+
+	portal string
+	port   uint32
 }
 
-func NewCsifTGTD(port uint32, iqnPref string) *csifTGTD {
+type iscsiTarget struct {
+	control uint32
+	id      int
+	iqn     string
+}
+
+func startTGTD(control uint32, port uint32) error {
+	exec := utilexec.New()
+	out, err := exec.Command("tgtd", "-C", fmt.Sprint(control),
+		"--iscsi", "portal=:"+fmt.Sprint(port)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v", string(out))
+	}
+	return nil
+}
+
+func NewCsifTGTD(control uint32, iqnPref, portal string, port uint32) (*csifTGTD, error) {
+	if err := startTGTD(control, port); err != nil {
+		return nil, fmt.Errorf("failed to start tgtd: %v", err)
+	}
+
 	return &csifTGTD{
-		port:    port,
+		control: control,
 		iqnPref: iqnPref,
 		targets: map[int]*iscsiTarget{},
-	}
+		portal:  portal,
+		port:    port,
+	}, nil
 }
 
 func (d *csifTGTD) CreateDisk(bstore string) (*iscsiTarget, error) {
@@ -33,9 +58,9 @@ func (d *csifTGTD) CreateDisk(bstore string) (*iscsiTarget, error) {
 	}
 
 	target := &iscsiTarget{
-		port: d.port,
-		id:   tid,
-		iqn:  d.iqnPref + ":" + fmt.Sprint(tid),
+		control: d.control,
+		id:      tid,
+		iqn:     d.iqnPref + ":" + fmt.Sprint(tid),
 	}
 
 	if err = target.start(); err != nil {
@@ -88,16 +113,10 @@ func (d *csifTGTD) allocTID() (int, error) {
 	return 0, fmt.Errorf("cisfTGTD limit reached")
 }
 
-type iscsiTarget struct {
-	port uint32
-	id   int
-	iqn  string
-}
-
 func (it *iscsiTarget) start() error {
 	exec := utilexec.New()
 	//--lld <driver> --op new --mode target --tid <id> --targetname <name>
-	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.port), "--lld", "iscsi",
+	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.control), "--lld", "iscsi",
 		"--op", "new", "--mode", "target",
 		"--tid", fmt.Sprint(it.id), "--targetname", it.iqn).CombinedOutput()
 	if err != nil {
@@ -109,7 +128,7 @@ func (it *iscsiTarget) start() error {
 func (it *iscsiTarget) stop() error {
 	exec := utilexec.New()
 	//--lld <driver> --op delete --mode target --tid <id>
-	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.port), "--lld", "iscsi",
+	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.control), "--lld", "iscsi",
 		"--op", "delete", "--mode", "target",
 		"--tid", fmt.Sprint(it.id)).CombinedOutput()
 	if err != nil {
@@ -121,7 +140,7 @@ func (it *iscsiTarget) stop() error {
 func (it *iscsiTarget) createLun(lun uint32, bstore string) error {
 	exec := utilexec.New()
 	//--lld <driver> --op new --mode logicalunit --tid <id> --lun <lun> --backing-store <path>
-	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.port), "--lld", "iscsi",
+	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.control), "--lld", "iscsi",
 		"--op", "new", "--mode", "logicalunit",
 		"--tid", fmt.Sprint(it.id), "--lun", fmt.Sprint(lun),
 		"--backing-store", bstore).CombinedOutput()
@@ -134,7 +153,7 @@ func (it *iscsiTarget) createLun(lun uint32, bstore string) error {
 func (it *iscsiTarget) deleteLun(lun uint32) error {
 	exec := utilexec.New()
 	//--lld <driver> --op delete --mode logicalunit --tid <id> --lun <lun>
-	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.port), "--lld", "iscsi",
+	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.control), "--lld", "iscsi",
 		"--op", "delete", "--mode", "logicalunit",
 		"--tid", fmt.Sprint(it.id), "--lun", fmt.Sprint(lun)).CombinedOutput()
 	if err != nil {
@@ -146,7 +165,7 @@ func (it *iscsiTarget) deleteLun(lun uint32) error {
 func (it *iscsiTarget) bindAddr(addr string) error {
 	exec := utilexec.New()
 	//--lld <driver> --op bind --mode target --tid <id> --initiator-address <address>
-	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.port), "--lld", "iscsi",
+	out, err := exec.Command("tgtadm", "-C", fmt.Sprint(it.control), "--lld", "iscsi",
 		"--op", "bind", "--mode", "target",
 		"--tid", fmt.Sprint(it.id), "--initiator-address", addr).CombinedOutput()
 	if err != nil {
@@ -154,5 +173,3 @@ func (it *iscsiTarget) bindAddr(addr string) error {
 	}
 	return nil
 }
-
-// TODO: portals: --lld iscsi --op new --mode portal --param portal=10.1.1.101:3260

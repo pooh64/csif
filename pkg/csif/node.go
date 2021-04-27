@@ -6,6 +6,8 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/golang/glog"
+	lib_iscsi "github.com/pooh64/csi-lib-iscsi/iscsi"
+	"github.com/pooh64/csif-driver/pkg/filter"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,8 +35,17 @@ func newCsifNodeServer(driver *csifDriver) *csifNodeServer {
 }
 
 type csifVolumeAttachment struct {
-	Disk        csifDisk
-	StagingPath string
+	Disk   csifDisk
+	target *iscsiTarget
+	conn   *lib_iscsi.Connector
+	outDev string
+
+	StagingPath         string
+	remoteFilterDeleted bool
+}
+
+func (vol *csifVolumeAttachment) getPath() string {
+	return vol.outDev
 }
 
 func (ns *csifNodeServer) getVolumeAttachment(volID string) (*csifVolumeAttachment, error) {
@@ -53,17 +64,111 @@ func (ns *csifNodeServer) createVolumeAttachment(req *csi.NodeStageVolumeRequest
 	vol := &csifVolumeAttachment{
 		Disk: disk,
 	}
+	if err := ns.createFilter(vol); err != nil {
+		if err := vol.Disk.Detach(); err != nil {
+			glog.Errorf("failed to detach disk: %v", err)
+		}
+		return nil, fmt.Errorf("failed to create filter: %v", err)
+	}
+
 	ns.volumes[req.VolumeId] = vol
 	return vol, nil
 }
 
 func (ns *csifNodeServer) deleteVolumeAttachment(volumeID string) error {
 	vol := ns.volumes[volumeID]
-	if err := vol.Disk.Detach(); err != nil {
+
+	if err := ns.deleteFilter(vol); err != nil { // force
+		glog.Errorf("failed to delete filter: %v", err)
+	}
+
+	if err := vol.Disk.Detach(); err != nil { // force
 		glog.Errorf("failed to detach disk while detaching pvc")
-		return err
 	}
 	delete(ns.volumes, volumeID)
+	return nil
+}
+
+func (ns *csifNodeServer) createFilter(att *csifVolumeAttachment) error {
+	var errout error = nil
+	src, err := att.Disk.GetPath()
+	if err != nil {
+		return fmt.Errorf("failed to get disk path: %v", err)
+	}
+	target, err := ns.cd.tgtd.CreateDisk(src)
+	if err != nil {
+		return fmt.Errorf("failed to create tgtd disk: %v", err)
+	}
+	defer cleanup(&errout, func() { ns.cd.tgtd.DeleteDisk(target.id) })
+
+	client := filter.NewFilterClient(ns.cd.filterConn)
+	req := &filter.CreateFilterRequest{
+		ClientDev: &filter.FilterDeviceInfo{
+			Tp:   ns.cd.tgtd.portal,
+			Port: ns.cd.tgtd.port,
+			Iqn:  target.iqn,
+		},
+	}
+	resp, err := client.CreateFilter(context.Background(), req)
+	if errout = err; err != nil {
+		return fmt.Errorf("failed to create filter: %v", err)
+	}
+	defer cleanup(&errout, func() {
+		client.DeleteFilter(context.Background(),
+			&filter.DeleteFilterRequest{ClientDev: req.ClientDev})
+	})
+
+	sdev := resp.GetServerDev()
+	conn := &lib_iscsi.Connector{
+		VolumeName: filterGetIdFromSrc(sdev),
+		Targets: []lib_iscsi.TargetInfo{{
+			Iqn:    sdev.GetIqn(),
+			Portal: sdev.GetTp(),
+			Port:   fmt.Sprint(sdev.GetPort())}},
+		Lun:         csifTGTDdefaultLUN,
+		Multipath:   false,
+		DoDiscovery: true,
+	}
+	dev, err := lib_iscsi.Connect(*conn)
+	if errout = err; err != nil {
+		return status.Errorf(codes.Internal, "iscsi connect failed: %v", err)
+	}
+
+	att.target = target
+	att.conn = conn
+	att.outDev = dev
+	return nil
+}
+
+func (ns *csifNodeServer) deleteFilter(att *csifVolumeAttachment) error {
+	if att.conn != nil {
+		connTarget := &att.conn.Targets[0]
+		err := lib_iscsi.Disconnect(connTarget.Iqn, []string{connTarget.Portal + ":" + connTarget.Port})
+		if err != nil {
+			return fmt.Errorf("failed to disconnect server target: %v", err)
+		}
+		att.conn = nil
+	}
+
+	if !att.remoteFilterDeleted {
+		client := filter.NewFilterClient(ns.cd.filterConn)
+		req := &filter.DeleteFilterRequest{
+			ClientDev: &filter.FilterDeviceInfo{
+				Tp:   ns.cd.tgtd.portal,
+				Port: ns.cd.tgtd.port,
+				Iqn:  att.target.iqn,
+			},
+		}
+		_, err := client.DeleteFilter(context.Background(), req)
+		if err != nil {
+			return fmt.Errorf("failed to delete filter: %v", err)
+		}
+		att.remoteFilterDeleted = true
+	}
+
+	if err := ns.cd.tgtd.DeleteDisk(att.target.id); err != nil {
+		return fmt.Errorf("failed to delete tgtd disk: %v", err)
+	}
 	return nil
 }
 
@@ -127,10 +232,7 @@ func (ns *csifNodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStag
 		return nil, fmt.Errorf("failed to create volume attachment: %v", err)
 	}
 
-	bdev, err := vol.Disk.GetPath()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bdev path: %v", err)
-	}
+	bdev := vol.getPath()
 
 	if req.GetVolumeCapability().GetBlock() != nil {
 		vol.StagingPath = req.GetStagingTargetPath()
@@ -227,10 +329,7 @@ func (ns *csifNodeServer) publishVolumeBlock(req *csi.NodePublishVolumeRequest, 
 		return status.Error(codes.NotFound, err.Error())
 	}
 
-	dev, err := vol.Disk.GetPath()
-	if err != nil {
-		return fmt.Errorf("disk getpath failed: %v", err)
-	}
+	bdev := vol.getPath()
 
 	if err := makeFile(target); err != nil {
 		if err := os.Remove(target); err != nil {
@@ -239,11 +338,11 @@ func (ns *csifNodeServer) publishVolumeBlock(req *csi.NodePublishVolumeRequest, 
 		return fmt.Errorf("makeFile failed: %s: %v", target, err)
 	}
 
-	if err := ns.mounter.Mount(dev, target, "", mountOptions); err != nil {
+	if err := ns.mounter.Mount(bdev, target, "", mountOptions); err != nil {
 		if err := os.Remove(target); err != nil {
 			return fmt.Errorf("remove failed: %s: %v", target, err)
 		}
-		return fmt.Errorf("mount failed: device %s, target %s: %v", dev, target, err)
+		return fmt.Errorf("mount failed: device %s, target %s: %v", bdev, target, err)
 	}
 	return nil
 }
@@ -311,7 +410,6 @@ func (ns *csifNodeServer) NodeExpandVolume(_ context.Context, _ *csi.NodeExpandV
 func (ns *csifNodeServer) getNSCapabilities() []*csi.NodeServiceCapability {
 	rpcCap := []csi.NodeServiceCapability_RPC_Type{
 		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
-		csi.NodeServiceCapability_RPC_EXPAND_VOLUME, // TODO: NI, remove
 	}
 
 	var nsCap []*csi.NodeServiceCapability

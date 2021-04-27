@@ -1,11 +1,11 @@
 FROM golang:1.16 AS build
 ADD . /app/src
 WORKDIR /app/src
-RUN make plugin
+RUN make filter
 
 FROM ubuntu
-LABEL description="csif-driver plugin"
+LABEL description="csif-filter server"
 RUN apt-get update && apt-get install -y tgt open-iscsi && \
 apt-get autoclean -y && apt-get autoremove -y && rm -rf /var/lib/apt-get/lists/*
-COPY --from=build /app/src/bin/csif-plugin /csif-plugin
-ENTRYPOINT ["/csif-plugin"]
+COPY --from=build /app/src/bin/csif-filter /csif-filter
+ENTRYPOINT ["/csif-filter"]
