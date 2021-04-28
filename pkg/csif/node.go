@@ -100,7 +100,7 @@ func (ns *csifNodeServer) createFilter(att *csifVolumeAttachment) error {
 		return fmt.Errorf("failed to create tgtd disk: %v", err)
 	}
 	glog.V(4).Infof("tgtd disk created")
-	defer cleanup(errout, func() { ns.cd.tgtd.DeleteDisk(target.id) })
+	defer cleanup(&errout, func() { ns.cd.tgtd.DeleteDisk(target.id) })
 
 	client := filter.NewFilterClient(ns.cd.filterConn)
 	req := &filter.CreateFilterRequest{
@@ -114,7 +114,7 @@ func (ns *csifNodeServer) createFilter(att *csifVolumeAttachment) error {
 	if errout = err; err != nil {
 		return fmt.Errorf("failed to create filter: %v", err)
 	}
-	defer cleanup(errout, func() {
+	defer cleanup(&errout, func() {
 		client.DeleteFilter(context.Background(),
 			&filter.DeleteFilterRequest{ClientDev: req.ClientDev})
 	})

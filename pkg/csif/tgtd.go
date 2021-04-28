@@ -70,12 +70,12 @@ func (d *csifTGTD) CreateDisk(bstore string) (*iscsiTarget, error) {
 	if err = target.start(); err != nil {
 		return nil, fmt.Errorf("failed to start target: %v", err)
 	}
-	defer cleanup(err, func() { target.stop() })
+	defer cleanup(&err, func() { target.stop() })
 
 	if err = target.createLun(csifTGTDdefaultLUN, bstore); err != nil {
 		return nil, fmt.Errorf("failed to create lun: %v", err)
 	}
-	defer cleanup(err, func() { target.deleteLun(csifTGTDdefaultLUN) })
+	defer cleanup(&err, func() { target.deleteLun(csifTGTDdefaultLUN) })
 
 	if err = target.bindAddr("ALL"); err != nil {
 		return nil, fmt.Errorf("failed to bind addr: %v", err)
