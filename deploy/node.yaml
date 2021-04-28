@@ -1,3 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: csi-csif-ns
+spec:
+  selector:
+    app: csi-csif-ns
+  ports:
+  - port: 9822
+    name: tgtport
+---
 kind: DaemonSet
 apiVersion: apps/v1
 metadata:
@@ -67,7 +78,7 @@ spec:
             - "--v=5"
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--nodeid=$(NODE_NAME)"
-            - "--filteraddr=csi-csif-fs-0:9820"
+            - "--filteraddr=csi-csif-fs-0.csi-csif-fs.default.svc.cluster.local.:9820"
             - "--tgtport=9822"
             - "--tgtcontrol=9722"
           env:
@@ -80,6 +91,9 @@ spec:
           ports:
             - containerPort: 9830
               name: healthz
+              protocol: TCP
+            - containerPort: 9822
+              name: tgtport
               protocol: TCP
           livenessProbe:
             failureThreshold: 5

@@ -7,7 +7,7 @@ service Filter {
 }
 
 message FilterDeviceInfo {
-    string tp = 1;
+    string portal = 1;
     uint32 port = 2;
     string iqn = 3;
 }

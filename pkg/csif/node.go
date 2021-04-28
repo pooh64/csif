@@ -99,21 +99,22 @@ func (ns *csifNodeServer) createFilter(att *csifVolumeAttachment) error {
 	if err != nil {
 		return fmt.Errorf("failed to create tgtd disk: %v", err)
 	}
-	defer cleanup(&errout, func() { ns.cd.tgtd.DeleteDisk(target.id) })
+	glog.V(4).Infof("tgtd disk created")
+	defer cleanup(errout, func() { ns.cd.tgtd.DeleteDisk(target.id) })
 
 	client := filter.NewFilterClient(ns.cd.filterConn)
 	req := &filter.CreateFilterRequest{
 		ClientDev: &filter.FilterDeviceInfo{
-			Tp:   ns.cd.tgtd.portal,
-			Port: ns.cd.tgtd.port,
-			Iqn:  target.iqn,
+			Portal: ns.cd.tgtd.portal,
+			Port:   ns.cd.tgtd.port,
+			Iqn:    target.iqn,
 		},
 	}
 	resp, err := client.CreateFilter(context.Background(), req)
 	if errout = err; err != nil {
 		return fmt.Errorf("failed to create filter: %v", err)
 	}
-	defer cleanup(&errout, func() {
+	defer cleanup(errout, func() {
 		client.DeleteFilter(context.Background(),
 			&filter.DeleteFilterRequest{ClientDev: req.ClientDev})
 	})
@@ -123,7 +124,7 @@ func (ns *csifNodeServer) createFilter(att *csifVolumeAttachment) error {
 		VolumeName: filterGetIdFromSrc(sdev),
 		Targets: []lib_iscsi.TargetInfo{{
 			Iqn:    sdev.GetIqn(),
-			Portal: sdev.GetTp(),
+			Portal: sdev.GetPortal(),
 			Port:   fmt.Sprint(sdev.GetPort())}},
 		Lun:         csifTGTDdefaultLUN,
 		Multipath:   false,
@@ -154,9 +155,9 @@ func (ns *csifNodeServer) deleteFilter(att *csifVolumeAttachment) error {
 		client := filter.NewFilterClient(ns.cd.filterConn)
 		req := &filter.DeleteFilterRequest{
 			ClientDev: &filter.FilterDeviceInfo{
-				Tp:   ns.cd.tgtd.portal,
-				Port: ns.cd.tgtd.port,
-				Iqn:  att.target.iqn,
+				Portal: ns.cd.tgtd.portal,
+				Port:   ns.cd.tgtd.port,
+				Iqn:    att.target.iqn,
 			},
 		}
 		_, err := client.DeleteFilter(context.Background(), req)

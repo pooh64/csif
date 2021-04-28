@@ -5,12 +5,14 @@ import (
 	"net"
 	"os"
 
+	"github.com/golang/glog"
 	"github.com/google/uuid"
 	utilexec "k8s.io/utils/exec"
 )
 
-func cleanup(err *error, f func()) {
+func cleanup(err error, f func()) {
 	if err != nil {
+		glog.V(4).Infof("error cleanup...")
 		f()
 	}
 }

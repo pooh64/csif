@@ -2,6 +2,7 @@
 
 kubectl delete -f node.yaml
 kubectl delete -f controller.yaml
+kubectl delete -f filter.yaml
 kubectl delete -f driverinfo.yaml
 kubectl delete -f rbac-controller.yaml
 

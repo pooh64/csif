@@ -27,6 +27,8 @@ type csifFilterServer struct {
 	endpoint string
 	tgtd     *csifTGTD
 	disks    map[string]*csifFilterEntry
+
+	filter.UnimplementedFilterServer
 }
 
 func NewCsifFilterServer(endpoint string, tgtd *csifTGTD) (*csifFilterServer, error) {
@@ -52,13 +54,16 @@ func csifFilterLogInterceptor(ctx context.Context, req interface{}, info *grpc.U
 
 func (cf *csifFilterServer) Run() error {
 	server := NewNbServer()
-	server.Start(cf.endpoint, nil, csifFilterLogInterceptor)
+	register := func(s *grpc.Server) {
+		filter.RegisterFilterServer(s, cf)
+	}
+	server.Start(cf.endpoint, register, csifFilterLogInterceptor)
 	server.Wait()
 	return nil
 }
 
 func filterGetIdFromSrc(src *filter.FilterDeviceInfo) string {
-	return src.GetTp() + "-" + fmt.Sprint(src.GetPort()) + "-" + src.GetIqn()
+	return src.GetPortal() + "-" + fmt.Sprint(src.GetPort()) + "-" + src.GetIqn()
 }
 
 func (cf *csifFilterServer) CreateFilter(ctx context.Context, req *filter.CreateFilterRequest) (*filter.CreateFilterResponse, error) {
@@ -73,7 +78,7 @@ func (cf *csifFilterServer) CreateFilter(ctx context.Context, req *filter.Create
 		VolumeName: id,
 		Targets: []lib_iscsi.TargetInfo{{
 			Iqn:    src.GetIqn(),
-			Portal: src.GetTp(),
+			Portal: src.GetPortal(),
 			Port:   fmt.Sprint(src.GetPort())}},
 		Lun:         csifTGTDdefaultLUN,
 		Multipath:   false,
@@ -97,9 +102,9 @@ func (cf *csifFilterServer) CreateFilter(ctx context.Context, req *filter.Create
 	}
 	return &filter.CreateFilterResponse{
 		ServerDev: &filter.FilterDeviceInfo{
-			Tp:   cf.tgtd.portal,
-			Port: cf.tgtd.port,
-			Iqn:  out.iqn},
+			Portal: cf.tgtd.portal,
+			Port:   cf.tgtd.port,
+			Iqn:    out.iqn},
 	}, nil
 }
 

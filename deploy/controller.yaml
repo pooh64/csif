@@ -89,7 +89,7 @@ spec:
             - "--v=5"
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--nodeid=$(NODE_NAME)"
-            - "--filteraddr=csi-csif-fs-0:9820"
+            - "--filteraddr=csi-csif-fs-0.csi-csif-fs.default.svc.cluster.local.:9820"
             - "--tgtport=9823"
             - "--tgtcontrol=9723"
           env:
@@ -102,6 +102,9 @@ spec:
           ports:
             - containerPort: 9831
               name: healthz
+              protocol: TCP
+            - containerPort: 9823
+              name: tgtport
               protocol: TCP
           livenessProbe:
             failureThreshold: 5
