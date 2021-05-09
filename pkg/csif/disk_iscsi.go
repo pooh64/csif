@@ -20,7 +20,6 @@ type csifDiskISCSI struct {
 	Iqn          string `json:"iqn"`
 	Lun          int32  `json:"lun,string"`
 
-	name string               `json:"-"`
 	dev  string               `json:"-"`
 	conn *lib_iscsi.Connector `json:"-"`
 }
@@ -48,13 +47,12 @@ func (d *csifDiskISCSI) Destroy() error {
 	return status.Errorf(codes.Unimplemented, "")
 }
 
-func (d *csifDiskISCSI) Attach(req *csi.NodeStageVolumeRequest) (string, error) {
+func (d *csifDiskISCSI) Attach() (string, error) {
 	//d.TargetPortal = iscsiSetDefaultPort(d.TargetPortal)
-	d.name = req.GetVolumeId()
 
 	target := lib_iscsi.TargetInfo{Iqn: d.Iqn, Portal: d.TargetPortal, Port: d.Port}
 	d.conn = &lib_iscsi.Connector{
-		VolumeName:  d.name,
+		VolumeName:  d.Iqn, // unique, probably
 		Targets:     []lib_iscsi.TargetInfo{target},
 		Lun:         d.Lun,
 		Multipath:   false,

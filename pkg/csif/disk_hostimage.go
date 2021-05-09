@@ -47,7 +47,7 @@ func (hi *csifDiskHostImg) Destroy() error {
 	return nil
 }
 
-func (hi *csifDiskHostImg) Attach(req *csi.NodeStageVolumeRequest) (string, error) {
+func (hi *csifDiskHostImg) Attach() (string, error) {
 	if err := createImg(hi.ImgPath, hi.Size); err != nil {
 		return "", fmt.Errorf("create disk img failed: %v", err)
 	}

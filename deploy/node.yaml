@@ -23,7 +23,7 @@ spec:
       labels:
         app: csi-csif-ns
     spec:
-      hostNetwork: true
+      hostNetwork: true ## TODO: debug
       dnsPolicy: ClusterFirstWithHostNet
       containers:
 #################################################

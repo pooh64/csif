@@ -31,13 +31,75 @@ type csifDisk interface {
 	// VerifyParam(req *csi.CreateVolumeRequest) error
 
 	// NS routine: attach disk as block device
-	Attach(req *csi.NodeStageVolumeRequest) (string, error)
+	Attach() (string, error)
 	// NS routine: detack disk block device, close connection
 	Detach() error
 	// NS routine: get block device path
 	GetPath() (string, error)
 }
 
+// save to VolumeContext
+func csifDiskSaveContext(disk csifDisk) map[string]string {
+	jbyt, err := json.Marshal(interface{}(disk))
+	if err != nil {
+		panic(err)
+	}
+	attr := make(map[string]string)
+	if err := json.Unmarshal([]byte(jbyt), &attr); err != nil {
+		panic(err)
+	}
+	attr[csifDiskTypeParam] = disk.GetType()
+	return attr
+}
+
+// load from VolumeContext
+func csifDiskLoadContext(disk csifDisk, attr map[string]string) error {
+	jbyt, _ := json.Marshal(attr)
+	if err := json.Unmarshal([]byte(jbyt), disk); err != nil {
+		glog.Errorf("failed to unmarshal disk data")
+		return err
+	}
+	return nil
+}
+
+type csifDiskManager struct {
+	diskTypes map[string]csifDiskNewFn
+}
+
+func newCsifDiskManager() (*csifDiskManager, error) {
+	dm := &csifDiskManager{
+		diskTypes: map[string]csifDiskNewFn{},
+	}
+
+	dtype, fn, err := RegisterDiskTypeHostImg()
+	if err != nil {
+		return nil, fmt.Errorf("failed to register DiskHostImg driver: %v", err)
+	}
+	dm.diskTypes[dtype] = fn
+
+	dtype, fn, err = RegisterDiskTypeISCSI()
+	if err != nil {
+		return nil, fmt.Errorf("failed to register DiskISCSI driver: %v", err)
+	}
+	dm.diskTypes[dtype] = fn
+
+	return dm, nil
+}
+
+// pass CVreq.Parameters or NSVreq.VolumeContext
+func (cd *csifDiskManager) newCsifDisk(attr map[string]string) (csifDisk, error) {
+	dtype, ok := attr[csifDiskTypeParam]
+	if !ok {
+		return nil, fmt.Errorf("%s field is not presented", csifDiskTypeParam)
+	}
+	diskFn, ok := cd.diskTypes[dtype]
+	if !ok {
+		return nil, fmt.Errorf("%s %s is not supported", csifDiskTypeParam, dtype)
+	}
+	return diskFn(), nil
+}
+
+/*
 // CS routine: create disk from storageclass volumeAttributes
 // Needs Destroy()
 func (cd *csifDriver) csifDiskCreate(req *csi.CreateVolumeRequest, volID string) (csifDisk, error) {
@@ -50,20 +112,6 @@ func (cd *csifDriver) csifDiskCreate(req *csi.CreateVolumeRequest, volID string)
 		return nil, fmt.Errorf("disk.Create failed: %v", err)
 	}
 	return disk, nil
-}
-
-// CS routine: save disk claim info to PV volumeAttributes
-func (cd *csifDriver) csifDiskGetAttributes(disk csifDisk) map[string]string {
-	jbyt, err := json.Marshal(interface{}(disk))
-	if err != nil {
-		panic(err)
-	}
-	attr := make(map[string]string)
-	if err := json.Unmarshal([]byte(jbyt), &attr); err != nil {
-		panic(err)
-	}
-	attr[csifDiskTypeParam] = disk.GetType()
-	return attr
 }
 
 // NS routine: load PV context and attach disk claim
@@ -86,16 +134,4 @@ func (cd *csifDriver) csifDiskAttach(req *csi.NodeStageVolumeRequest) (csifDisk,
 	}
 	return disk, nil
 }
-
-// Internal, do not use
-func (cd *csifDriver) newCsifDisk(attr map[string]string) (csifDisk, error) {
-	dtype, ok := attr[csifDiskTypeParam]
-	if !ok {
-		return nil, fmt.Errorf("%s field is not presented", csifDiskTypeParam)
-	}
-	diskFn, ok := cd.diskTypes[dtype]
-	if !ok {
-		return nil, fmt.Errorf("%s %s is not supported", csifDiskTypeParam, dtype)
-	}
-	return diskFn(), nil
-}
+*/

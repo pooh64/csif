@@ -56,8 +56,14 @@ func (ns *csifNodeServer) getVolumeAttachment(volID string) (*csifVolumeAttachme
 }
 
 func (ns *csifNodeServer) createVolumeAttachment(req *csi.NodeStageVolumeRequest) (*csifVolumeAttachment, error) {
-	disk, err := ns.cd.csifDiskAttach(req)
+	disk, err := ns.cd.diskManager.newCsifDisk(req.GetVolumeContext())
 	if err != nil {
+		return nil, fmt.Errorf("failed to create disk: %v", err)
+	}
+	if err = csifDiskLoadContext(disk, req.GetVolumeContext()); err != nil {
+		return nil, fmt.Errorf("failed to load disk context: %v", err)
+	}
+	if _, err := disk.Attach(); err != nil {
 		return nil, fmt.Errorf("failed to attach disk: %v", err)
 	}
 

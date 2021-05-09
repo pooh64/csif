@@ -25,11 +25,10 @@ type csifDriver struct {
 	nodeID            string
 	maxVolumesPerNode int64
 
-	ns        *csifNodeServer
-	diskTypes map[string]csifDiskNewFn
-
-	filterConn *grpc.ClientConn
-	tgtd       *csifTGTD
+	diskManager *csifDiskManager
+	ns          *csifNodeServer
+	filterConn  *grpc.ClientConn
+	tgtd        *csifTGTD
 }
 
 func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int64,
@@ -41,6 +40,11 @@ func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int
 		version = "notset"
 	}
 
+	diskManager, err := newCsifDiskManager()
+	if err != nil {
+		return nil, fmt.Errorf("csif disk manager failed: %v", err)
+	}
+
 	cd := &csifDriver{
 		name:              name,
 		version:           version,
@@ -48,22 +52,9 @@ func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int
 		nodeID:            nodeID,
 		maxVolumesPerNode: maxVolumesPerNode,
 
-		diskTypes: map[string]csifDiskNewFn{},
-
-		tgtd: tgtd,
+		diskManager: diskManager,
+		tgtd:        tgtd,
 	}
-
-	dtype, fn, err := RegisterDiskTypeHostImg()
-	if err != nil {
-		return nil, fmt.Errorf("failed to register DiskHostImg driver: %v", err)
-	}
-	cd.diskTypes[dtype] = fn
-
-	dtype, fn, err = RegisterDiskTypeISCSI()
-	if err != nil {
-		return nil, fmt.Errorf("failed to register DiskISCSI driver: %v", err)
-	}
-	cd.diskTypes[dtype] = fn
 
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),

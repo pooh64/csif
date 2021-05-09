@@ -69,9 +69,13 @@ func (cs *csifControllerServer) createVolume(req *csi.CreateVolumeRequest, acces
 		return nil, fmt.Errorf("wrong access type %v", accessType)
 	}
 
-	disk, err := cs.cd.csifDiskCreate(req, volID)
+	disk, err := cs.cd.diskManager.newCsifDisk(req.GetParameters())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create disk: %v", err)
+	}
+
+	if err := disk.Create(req, volID); err != nil {
+		return nil, fmt.Errorf("disk.Create failed: %v", err)
 	}
 
 	vol := &csifVolume{
@@ -165,7 +169,7 @@ func obtainVolumeCapabilitiy(caps []*csi.VolumeCapability) (volAccessType, error
 }
 
 func (cs *csifControllerServer) csifVolumeToCSI(vol *csifVolume, topo []*csi.Topology) *csi.Volume {
-	attr := cs.cd.csifDiskGetAttributes(vol.Disk)
+	attr := csifDiskSaveContext(vol.Disk)
 
 	return &csi.Volume{
 		VolumeId:           vol.ID,
