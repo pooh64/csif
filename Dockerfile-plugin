@@ -5,7 +5,7 @@ RUN make plugin
 
 FROM ubuntu
 LABEL description="csif-driver plugin"
-RUN apt-get update && apt-get install -y tgt open-iscsi && \
+RUN apt-get update && apt-get install -y open-iscsi && \
 apt-get autoclean -y && apt-get autoremove -y && rm -rf /var/lib/apt-get/lists/*
 COPY --from=build /app/src/bin/csif-plugin /csif-plugin
 ENTRYPOINT ["/csif-plugin"]

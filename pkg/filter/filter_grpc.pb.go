@@ -18,8 +18,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FilterClient interface {
-	CreateFilter(ctx context.Context, in *CreateFilterRequest, opts ...grpc.CallOption) (*CreateFilterResponse, error)
-	DeleteFilter(ctx context.Context, in *DeleteFilterRequest, opts ...grpc.CallOption) (*DeleteFilterResponse, error)
+	CreateTarget(ctx context.Context, in *CreateTargetRequest, opts ...grpc.CallOption) (*CreateTargetResponse, error)
+	DeleteTarget(ctx context.Context, in *DeleteTargetRequest, opts ...grpc.CallOption) (*DeleteTargetResponse, error)
 }
 
 type filterClient struct {
@@ -30,18 +30,18 @@ func NewFilterClient(cc grpc.ClientConnInterface) FilterClient {
 	return &filterClient{cc}
 }
 
-func (c *filterClient) CreateFilter(ctx context.Context, in *CreateFilterRequest, opts ...grpc.CallOption) (*CreateFilterResponse, error) {
-	out := new(CreateFilterResponse)
-	err := c.cc.Invoke(ctx, "/Filter/CreateFilter", in, out, opts...)
+func (c *filterClient) CreateTarget(ctx context.Context, in *CreateTargetRequest, opts ...grpc.CallOption) (*CreateTargetResponse, error) {
+	out := new(CreateTargetResponse)
+	err := c.cc.Invoke(ctx, "/Filter/CreateTarget", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *filterClient) DeleteFilter(ctx context.Context, in *DeleteFilterRequest, opts ...grpc.CallOption) (*DeleteFilterResponse, error) {
-	out := new(DeleteFilterResponse)
-	err := c.cc.Invoke(ctx, "/Filter/DeleteFilter", in, out, opts...)
+func (c *filterClient) DeleteTarget(ctx context.Context, in *DeleteTargetRequest, opts ...grpc.CallOption) (*DeleteTargetResponse, error) {
+	out := new(DeleteTargetResponse)
+	err := c.cc.Invoke(ctx, "/Filter/DeleteTarget", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +52,8 @@ func (c *filterClient) DeleteFilter(ctx context.Context, in *DeleteFilterRequest
 // All implementations must embed UnimplementedFilterServer
 // for forward compatibility
 type FilterServer interface {
-	CreateFilter(context.Context, *CreateFilterRequest) (*CreateFilterResponse, error)
-	DeleteFilter(context.Context, *DeleteFilterRequest) (*DeleteFilterResponse, error)
+	CreateTarget(context.Context, *CreateTargetRequest) (*CreateTargetResponse, error)
+	DeleteTarget(context.Context, *DeleteTargetRequest) (*DeleteTargetResponse, error)
 	mustEmbedUnimplementedFilterServer()
 }
 
@@ -61,11 +61,11 @@ type FilterServer interface {
 type UnimplementedFilterServer struct {
 }
 
-func (UnimplementedFilterServer) CreateFilter(context.Context, *CreateFilterRequest) (*CreateFilterResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateFilter not implemented")
+func (UnimplementedFilterServer) CreateTarget(context.Context, *CreateTargetRequest) (*CreateTargetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateTarget not implemented")
 }
-func (UnimplementedFilterServer) DeleteFilter(context.Context, *DeleteFilterRequest) (*DeleteFilterResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteFilter not implemented")
+func (UnimplementedFilterServer) DeleteTarget(context.Context, *DeleteTargetRequest) (*DeleteTargetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteTarget not implemented")
 }
 func (UnimplementedFilterServer) mustEmbedUnimplementedFilterServer() {}
 
@@ -80,38 +80,38 @@ func RegisterFilterServer(s grpc.ServiceRegistrar, srv FilterServer) {
 	s.RegisterService(&Filter_ServiceDesc, srv)
 }
 
-func _Filter_CreateFilter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateFilterRequest)
+func _Filter_CreateTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTargetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FilterServer).CreateFilter(ctx, in)
+		return srv.(FilterServer).CreateTarget(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/Filter/CreateFilter",
+		FullMethod: "/Filter/CreateTarget",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FilterServer).CreateFilter(ctx, req.(*CreateFilterRequest))
+		return srv.(FilterServer).CreateTarget(ctx, req.(*CreateTargetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Filter_DeleteFilter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteFilterRequest)
+func _Filter_DeleteTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteTargetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FilterServer).DeleteFilter(ctx, in)
+		return srv.(FilterServer).DeleteTarget(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/Filter/DeleteFilter",
+		FullMethod: "/Filter/DeleteTarget",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FilterServer).DeleteFilter(ctx, req.(*DeleteFilterRequest))
+		return srv.(FilterServer).DeleteTarget(ctx, req.(*DeleteTargetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -124,14 +124,14 @@ var Filter_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*FilterServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "CreateFilter",
-			Handler:    _Filter_CreateFilter_Handler,
+			MethodName: "CreateTarget",
+			Handler:    _Filter_CreateTarget_Handler,
 		},
 		{
-			MethodName: "DeleteFilter",
-			Handler:    _Filter_DeleteFilter_Handler,
+			MethodName: "DeleteTarget",
+			Handler:    _Filter_DeleteTarget_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "filter/filter.proto",
+	Metadata: "filter.proto",
 }

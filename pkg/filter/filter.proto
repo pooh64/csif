@@ -2,27 +2,25 @@ syntax = "proto3";
 option go_package = "github.com/pooh64/csif-driver/filter";
 
 service Filter {
-    rpc CreateFilter(CreateFilterRequest) returns (CreateFilterResponse) {}
-    rpc DeleteFilter(DeleteFilterRequest) returns (DeleteFilterResponse) {}
+    rpc CreateTarget(CreateTargetRequest) returns (CreateTargetResponse) {}
+    rpc DeleteTarget(DeleteTargetRequest) returns (DeleteTargetResponse) {}
 }
 
-message FilterDeviceInfo {
+message TargetInfo {
     string portal = 1;
     uint32 port = 2;
     string iqn = 3;
 }
 
-message CreateFilterRequest {
-    FilterDeviceInfo client_dev = 1;
+message CreateTargetRequest {
 }
 
-message CreateFilterResponse {
-    FilterDeviceInfo server_dev = 1;
+message CreateTargetResponse {
+    TargetInfo target = 1;
 }
 
-message DeleteFilterRequest {
-    FilterDeviceInfo client_dev = 1;
+message DeleteTargetRequest {
 }
 
-message DeleteFilterResponse {
+message DeleteTargetResponse {
 }

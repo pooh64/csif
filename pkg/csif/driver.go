@@ -8,6 +8,9 @@ import (
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -25,14 +28,11 @@ type csifDriver struct {
 	nodeID            string
 	maxVolumesPerNode int64
 
-	diskManager *csifDiskManager
-	ns          *csifNodeServer
-	filterConn  *grpc.ClientConn
-	tgtd        *csifTGTD
+	clientset *kubernetes.Clientset
+	ns        *csifNodeServer
 }
 
-func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int64,
-	filterAddr string, tgtd *csifTGTD) (*csifDriver, error) {
+func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int64) (*csifDriver, error) {
 	if name == "" || endpoint == "" || nodeID == "" {
 		return nil, fmt.Errorf("wrong args")
 	}
@@ -40,9 +40,13 @@ func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int
 		version = "notset"
 	}
 
-	diskManager, err := newCsifDiskManager()
+	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("csif disk manager failed: %v", err)
+		return nil, fmt.Errorf("load k8s config: %v", err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("create k8s clientset: %v", err)
 	}
 
 	cd := &csifDriver{
@@ -51,19 +55,8 @@ func NewCsifDriver(name, nodeID, endpoint, version string, maxVolumesPerNode int
 		endpoint:          endpoint,
 		nodeID:            nodeID,
 		maxVolumesPerNode: maxVolumesPerNode,
-
-		diskManager: diskManager,
-		tgtd:        tgtd,
+		clientset:         clientset,
 	}
-
-	opts := []grpc.DialOption{
-		grpc.WithInsecure(),
-	}
-	conn, err := grpc.Dial(filterAddr, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to filter gRPC: %v", err)
-	}
-	cd.filterConn = conn
 
 	glog.Infof("New Driver: name=%v version=%v", name, version)
 

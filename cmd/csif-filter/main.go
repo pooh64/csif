@@ -28,7 +28,7 @@ func main() {
 	}
 
 	tgtd, err := csif.NewCsifTGTD(uint32(*tgtcontrol),
-		csif.CsifFServerIQNPrefix, portal, uint32(*tgtport))
+		csif.CsifFilterIQNPrefix, portal, uint32(*tgtport))
 	if err != nil {
 		fmt.Printf("Can't create new tgtd: %v", err.Error())
 		os.Exit(1)

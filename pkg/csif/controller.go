@@ -35,7 +35,7 @@ type csifVolume struct {
 	ID         string
 	Size       int64
 	AccessType volAccessType
-	Disk       csifDisk
+	Disk       *csifDisk
 }
 
 func (cs *csifControllerServer) getVolumeByID(volID string) (*csifVolume, error) {
@@ -69,10 +69,7 @@ func (cs *csifControllerServer) createVolume(req *csi.CreateVolumeRequest, acces
 		return nil, fmt.Errorf("wrong access type %v", accessType)
 	}
 
-	disk, err := cs.cd.diskManager.newCsifDisk(req.GetParameters())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create disk: %v", err)
-	}
+	disk := newCsifDisk(cs.cd)
 
 	if err := disk.Create(req, volID); err != nil {
 		return nil, fmt.Errorf("disk.Create failed: %v", err)
@@ -169,7 +166,7 @@ func obtainVolumeCapabilitiy(caps []*csi.VolumeCapability) (volAccessType, error
 }
 
 func (cs *csifControllerServer) csifVolumeToCSI(vol *csifVolume, topo []*csi.Topology) *csi.Volume {
-	attr := csifDiskSaveContext(vol.Disk)
+	attr := vol.Disk.SaveContext()
 
 	return &csi.Volume{
 		VolumeId:           vol.ID,
