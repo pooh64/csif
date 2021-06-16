@@ -1,0 +1,29 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: csi-csif-fs-test
+  namespace: default
+spec:
+  volumes:
+   - name: csi-csif-vol-src
+     persistentVolumeClaim:
+       claimName: pvc-gce
+       readOnly: false
+  hostNetwork: false
+  #NodeName:
+  containers:
+    - name: filter
+      image: pooh64/csif-filter-csivol:latest
+      imagePullPolicy: Always
+      args:
+        - "--endpoint=tcp://:9820"
+        - "--tgtport=9821"
+        - "--tgtcontrol=9822"
+        - "--v=5"
+      volumeDevices:
+        - devicePath: /csi-csif-bstore-src
+          name: csi-csif-vol-src
+      securityContext:
+        privileged: true
+        capabilities:
+          add: ["SYS_ADMIN"]

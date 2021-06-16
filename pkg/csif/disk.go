@@ -28,6 +28,8 @@ const (
 	CsifFilterPortGRPC       = 9820
 	CsifFilterPortTGT        = 9821
 	CsifFilterPortTGTControl = 9822
+	CsifFilterBstoreSrc      = "/dev/csi-csif-bstore-src"
+	СsifFilterForcedLoop0    = "/dev/loop0" // TODO: fix
 )
 
 // TODO: idempotent CS
@@ -129,6 +131,9 @@ func (d *csifDisk) deleteFilterPod() error {
 	if err != nil {
 		d.filterPod = nil
 	}
+
+	// TODO: print log, in create... too
+	// TODO: wait deletion
 	return err
 }
 
@@ -275,7 +280,7 @@ func makeFilterPodConf(d *csifDisk) *core.Pod {
 			//DNSPolicy:   "ClusterFirstWithHostNet",
 			HostNetwork: false,
 			//Hostname:    "",
-			NodeName: d.cd.nodeID,
+			//NodeName: d.cd.nodeID,
 
 			Containers: []core.Container{
 				{

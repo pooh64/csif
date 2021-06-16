@@ -4,8 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/golang/glog"
 	"github.com/pooh64/csif-driver/pkg/csif"
+	utilexec "k8s.io/utils/exec"
 )
 
 var (
@@ -16,6 +19,14 @@ var (
 
 func init() {
 	flag.Set("logtostderr", "true")
+}
+
+func logDevDir() {
+	cmd := utilexec.New().Command("ls", "/dev")
+	out, _ := cmd.CombinedOutput()
+	str := string(out)
+	str = strings.Replace(str, "\n", " ", -1)
+	glog.V(4).Infof("/dev dir: %v", str)
 }
 
 func main() {
@@ -33,6 +44,8 @@ func main() {
 		fmt.Printf("Can't create new tgtd: %v", err.Error())
 		os.Exit(1)
 	}
+
+	logDevDir()
 
 	filter, err := csif.NewCsifFilterServer(*endpoint, tgtd)
 	if err != nil {

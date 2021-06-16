@@ -13,7 +13,6 @@ import (
 
 const (
 	CsifFilterIQNPrefix = "iqn.com.pooh64.csi.csif.filter"
-	CsifFilterBstoreSrc = "/dev/csi-csif-bstore-src"
 )
 
 type csifFilterServer struct {
@@ -71,7 +70,7 @@ func (cf *csifFilterServer) CreateTarget(ctx context.Context, req *filter.Create
 		}
 	*/
 
-	out, err := cf.tgtd.CreateDisk(CsifFilterBstoreSrc)
+	out, err := cf.tgtd.CreateDisk(СsifFilterForcedLoop0)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create target: %v", err)
 	}
