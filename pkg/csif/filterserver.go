@@ -13,7 +13,7 @@ import (
 
 const (
 	CsifFilterIQNPrefix = "iqn.com.pooh64.csi.csif.filter"
-	FakeBstorePath      = "/csif-fake-bstore.img"
+	CsifFilterBstoreSrc = "/dev/csi-csif-bstore-src"
 )
 
 type csifFilterServer struct {
@@ -64,12 +64,14 @@ func (cf *csifFilterServer) CreateTarget(ctx context.Context, req *filter.Create
 		return nil, status.Errorf(codes.AlreadyExists, "target already exists")
 	}
 
-	// fake bstore
-	if err := createImg(FakeBstorePath, 16*mib); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create fake bstore: %v", err)
-	}
+	/*
+		// fake bstore
+		if err := createImg(FakeBstorePath, 16*mib); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to create fake bstore: %v", err)
+		}
+	*/
 
-	out, err := cf.tgtd.CreateDisk(FakeBstorePath)
+	out, err := cf.tgtd.CreateDisk(CsifFilterBstoreSrc)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create target: %v", err)
 	}
@@ -94,9 +96,11 @@ func (cf *csifFilterServer) DeleteTarget(ctx context.Context, req *filter.Delete
 	}
 	cf.target = nil
 
-	if err := destroyImg(FakeBstorePath); err != nil {
-		glog.Errorf("failed to delete fake bstore: %v", err)
-	}
+	/*
+		if err := destroyImg(FakeBstorePath); err != nil {
+			glog.Errorf("failed to delete fake bstore: %v", err)
+		}
+	*/
 
 	return &filter.DeleteTargetResponse{}, nil
 }

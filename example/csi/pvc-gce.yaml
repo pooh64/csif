@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-gce
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Block
+  storageClassName: standard-rwo
+  resources:
+    requests:
+      storage: 64Mi

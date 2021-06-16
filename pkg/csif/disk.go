@@ -33,8 +33,8 @@ const (
 // TODO: idempotent CS
 // VerifyParam(req *csi.CreateVolumeRequest) error
 type csifDisk struct {
-	SourcePV string      `json:"sourcePV"`
-	cd       *csifDriver `json:"-"`
+	SourcePVC string      `json:"sourcePVC"`
+	cd        *csifDriver `json:"-"`
 
 	filterPod    *core.Pod            `json:"-"`
 	filterConn   *grpc.ClientConn     `json:"-"`
@@ -105,7 +105,7 @@ func (d *csifDisk) createFilterPod() error {
 
 	pred := func(pod *core.Pod) bool { return pod.Status.Phase != core.PodPending }
 
-	pod, err = waitPodCond(coreif, pod, pred, 12*time.Second)
+	pod, err = waitPodCond(coreif, pod, pred, 100*time.Second)
 	if err != nil {
 		if err := d.deleteFilterPod(); err != nil {
 			glog.Errorf("failed to delete pod: %v", err)
@@ -254,24 +254,24 @@ func makeFilterPodConf(d *csifDisk) *core.Pod {
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "csi-csif-fs-" + d.SourcePV,
+			Name:      "csi-csif-fs-" + d.SourcePVC,
 			Namespace: "default",
 			//Labels: map[string]string{
 			//	"appxxx": "xxx",
 			//},
 		},
 		Spec: core.PodSpec{
-			/* Volumes: []core.Volume{
+			Volumes: []core.Volume{
 				{
-					Name: "vol",
+					Name: "csi-csif-vol-src",
 					VolumeSource: core.VolumeSource{
 						PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
-							ClaimName: d.SourcePV,
+							ClaimName: d.SourcePVC,
 							ReadOnly:  false,
 						},
 					},
 				},
-			}, */
+			},
 			//DNSPolicy:   "ClusterFirstWithHostNet",
 			HostNetwork: false,
 			//Hostname:    "",
@@ -288,11 +288,11 @@ func makeFilterPodConf(d *csifDisk) *core.Pod {
 						"--tgtcontrol=" + fmt.Sprint(CsifFilterPortTGTControl),
 						"--v=5",
 					},
-					VolumeMounts: []core.VolumeMount{
-						/*{
-							Name: "dev-dir",
-							MountPath: "/dev",
-						},*/ // isolate
+					VolumeDevices: []core.VolumeDevice{
+						{
+							Name:       "csi-csif-vol-src",
+							DevicePath: CsifFilterBstoreSrc,
+						},
 					},
 					SecurityContext: &core.SecurityContext{
 						Privileged: &priv,

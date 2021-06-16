@@ -15,4 +15,4 @@ spec:
     readOnly: false
     volumeHandle: pv-csi-uid
     volumeAttributes:
-      sourcePV: xxx
+      sourcePVC: pvc-gce
