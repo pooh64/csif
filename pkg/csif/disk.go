@@ -285,7 +285,7 @@ func makeFilterPodConf(d *csifDisk) *core.Pod {
 			Containers: []core.Container{
 				{
 					Name:            "filter",
-					Image:           "pooh64/csif-filter-csivol:latest",
+					Image:           "pooh64/csif-filter:latest",
 					ImagePullPolicy: core.PullAlways,
 					Args: []string{
 						"--endpoint=tcp://:" + fmt.Sprint(CsifFilterPortGRPC),

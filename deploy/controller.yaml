@@ -82,7 +82,7 @@ spec:
               memory: 20Mi
 #################################################
         - name: csif
-          image: pooh64/csif-plugin-csivol:latest
+          image: pooh64/csif-plugin:latest
           imagePullPolicy: Always
           args:
             - "--drivername=csif.csi.pooh64.io"

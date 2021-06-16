@@ -13,7 +13,7 @@ spec:
   #NodeName:
   containers:
     - name: filter
-      image: pooh64/csif-filter-csivol:latest
+      image: pooh64/csif-filter:latest
       imagePullPolicy: Always
       args:
         - "--endpoint=tcp://:9820"
